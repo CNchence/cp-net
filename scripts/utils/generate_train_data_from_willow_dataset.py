@@ -14,8 +14,8 @@ img_width = 640
 img_height = 480
 
 
-orig_data_path = os.path.join(os.getcwd(), '../models/willow_models')
-dataset_path = os.path.join(os.getcwd(), '../train_data/willow_models')
+orig_data_path = os.path.join(os.getcwd(), '../../models/willow_models')
+dataset_path = os.path.join(os.getcwd(), '../../train_data/willow_models')
 
 # 1 . generate RGB image
 # 2 . generate depth image
