@@ -25,7 +25,7 @@ dataset_path = os.path.join(os.getcwd(), '../../train_data/willow_models')
 def main():
     if not os.path.exists(orig_data_path):
         warnings.warn('Please install willow dataset')
-        return false
+        return False
     if not os.path.exists(dataset_path):
         os.makedirs(dataset_path, mode=0755)
 
