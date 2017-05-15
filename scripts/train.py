@@ -39,24 +39,23 @@ def class_pose_multi_loss(y, t):
     l_pos = F.mean_squared_error(pos, t_pos)
     l_cls = Variable(np.array([],dtype=np.float32))
     l_cls = F.softmax_cross_entropy(cls, t_cls)
-
     return  l_cls + l_pos
 
 def load_train_data(path, num_class, num_view, img_size= (480, 640)):
 
-    rgb = np.zeros(3 * img_size[0] * img_size[1] * num_class * num_view)
-    rgb = rgb.reshape(num_class*num_view, 3, img_size[1], img_size[0])
+    rgb = np.zeros(3 * img_size[0] * img_size[1] * (num_class - 1)* num_view)
+    rgb = rgb.reshape((num_class - 1)*num_view, 3, img_size[1], img_size[0])
 
-    depth = np.zeros(img_size[0] * img_size[1] * num_class * num_view)
-    depth = depth.reshape(num_class*num_view, 1, img_size[1], img_size[0])
+    depth = np.zeros(img_size[0] * img_size[1] * (num_class - 1) * num_view)
+    depth = depth.reshape((num_class - 1)*num_view, 1, img_size[1], img_size[0])
 
-    t_cls = np.zeros( img_size[0] * img_size[1] * num_class * num_view)
-    t_cls = t_cls.reshape(num_class*num_view, 1, img_size[1], img_size[0])
+    t_cls = np.zeros( img_size[0] * img_size[1] * (num_class - 1) * num_view)
+    t_cls = t_cls.reshape((num_class - 1)*num_view, 1, img_size[1], img_size[0])
 
-    t_pose = np.zeros(3 * img_size[0] * img_size[1] * num_class * num_view)
-    t_pose = t_pose.reshape(num_class*num_view, 3, img_size[1], img_size[0])
+    t_pose = np.zeros(3 * img_size[0] * img_size[1] * (num_class - 1) * num_view)
+    t_pose = t_pose.reshape((num_class - 1) *num_view, 3, img_size[1], img_size[0])
 
-    for i in range(num_class):
+    for i in range(num_class -1):
         c_idx =  '{0:02d}'.format(i+1)
         c_path = os.path.join(path, 'object_' + c_idx)
         for j in range(num_view):
