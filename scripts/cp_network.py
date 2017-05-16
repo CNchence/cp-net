@@ -95,7 +95,7 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
         concat_pool = h
 
         # score
-        h = F.relu(self.score_pool(h))
+        h = F.relu(self.score_pool(concat_pool))
         score1_8 = h
         h = F.relu(self.upscore_final(h))
         score = h  # 1/1
