@@ -3,6 +3,7 @@ import chainer.functions as F
 from chainer import initializers
 import chainer.links as L
 
+from chainer.initializers import constant
 from chainer.initializers import normal
 import chainer.links.model.vision.resnet as R
 from chainer.functions.array import concat
@@ -95,7 +96,7 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
         concat_pool = h
 
         # score
-        h = F.relu(self.score_pool(h))
+        h = F.relu(self.score_pool(concat_pool))
         score1_8 = h
         h = F.relu(self.upscore_final(h))
         score = h  # 1/1
