@@ -22,6 +22,7 @@ from chainer.links.caffe import CaffeFunction
 # from chainer.serializers import npz
 
 from cp_network import CenterProposalNetworkRes50FCN
+import cp_classifier
 
 import argparse
 import cv2
@@ -29,39 +30,6 @@ import os
 
 import math
 import numpy as np
-from chainer.functions.array import concat
-
-def class_pose_multi_loss(y, t):
-    cls, pos = y
-    t_cls_tmp, t_pos_tmp = F.separate(t, 1)
-    t_cls = Variable(np.array([]).astype(np.float32))
-    t_pos = Variable(np.array([]).astype(np.float32))
-    for i in range(len(t_cls_tmp)):
-        t_cls = concat.concat((t_cls, F.flatten(t_cls_tmp[i].data.astype(np.float32))), 0)
-        t_pos = concat.concat((t_pos, F.flatten(t_pos_tmp[i].data.astype(np.float32))), 0)
-    t_cls = F.reshape(F.flatten(t_cls), (cls.shape[0], cls.shape[2], cls.shape[3]))
-    t_pos = F.reshape(F.flatten(t_pos), pos.shape)
-    t_cls = Variable(t_cls.data.astype(np.int32))
-    l_pos = F.mean_squared_error(pos, t_pos)
-    l_cls = Variable(np.array([],dtype=np.float32))
-    l_cls = F.softmax_cross_entropy(cls, t_cls)
-    return  l_cls + l_pos
-
-def class_pose_multi_acc(y, t):
-    cls, pos = y
-    t_cls_tmp, t_pos_tmp = F.separate(t, 1)
-    t_cls = Variable(np.array([]).astype(np.float32))
-    t_pos = Variable(np.array([]).astype(np.float32))
-    for i in range(len(t_cls_tmp)):
-        t_cls = concat.concat((t_cls, F.flatten(t_cls_tmp[i].data.astype(np.float32))), 0)
-        t_pos = concat.concat((t_pos, F.flatten(t_pos_tmp[i].data.astype(np.float32))), 0)
-    t_cls = F.reshape(F.flatten(t_cls), (cls.shape[0], cls.shape[2], cls.shape[3]))
-    t_pos = F.reshape(F.flatten(t_pos), pos.shape)
-    t_cls = Variable(t_cls.data.astype(np.int32))
-    acc_pos = F.mean_squared_error(pos, t_pos)
-    l_cls = Variable(np.array([],dtype=np.float32))
-    acc_cls = F.accuracy(cls, t_cls)
-    return  acc_pos
 
 def _transfer_pretrain_resnet50(src, dst):
     dst.conv1.W.data[:] = src.conv1.W.data
@@ -170,14 +138,13 @@ def main():
 
     n_class = 2
     # n_class = 36
-    n_view = 35
+    n_view = 1
     train_path = os.path.join(os.getcwd(), '../train_data/willow_models')
     caffe_model = 'ResNet-50-model.caffemodel'
 
     
-    model = L.Classifier(CenterProposalNetworkRes50FCN(n_class=n_class, pretrained_model=True),
-                         lossfun=class_pose_multi_loss,
-                         accfun=class_pose_multi_acc)
+    model = cp_classifier.CPNetClassifier(CenterProposalNetworkRes50FCN(n_class=n_class,
+                                                                        pretrained_model=True))
     # model.compute_accuracy = False
     
     if args.gpu >= 0:
@@ -187,10 +154,6 @@ def main():
     # Setup an optimizer
     optimizer = chainer.optimizers.MomentumSGD(lr=0.01, momentum=0.9)
     optimizer.setup(model)
-
-
-    # load pre-train Network
-
 
     print('load train data')
     # load train data
@@ -238,7 +201,7 @@ def main():
         #         'epoch', file_name='accuracy.png'))
 
     trainer.extend(extensions.PrintReport(
-        ['epoch', 'main/loss', 'main/accuracy', 'elapsed_time']))
+        ['epoch', 'main/loss', 'main/class_accuracy', 'main/pose_accuracy', 'elapsed_time']))
 
 
     # Print a progress bar to stdout
