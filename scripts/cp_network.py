@@ -3,6 +3,7 @@ import chainer.functions as F
 from chainer import initializers
 import chainer.links as L
 
+from chainer.initializers import constant
 from chainer.initializers import normal
 import chainer.links.model.vision.resnet as R
 from chainer.functions.array import concat

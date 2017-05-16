@@ -8,14 +8,20 @@ from chainer import cuda
 from chainer import optimizers
 from chainer import serializers
 from chainer import Variable
+from chainer import link
+
+from chainer.dataset import download
 
 import chainer.links as L
 import chainer.functions as F
+import chainer.links.model.vision.resnet as R
+
 from chainer.training import extensions
 from chainer.datasets import tuple_dataset
+from chainer.links.caffe import CaffeFunction
+# from chainer.serializers import npz
 
 from cp_network import CenterProposalNetworkRes50FCN
-from cp_network import CenterProposalNetworkRes50FCNtest
 
 import argparse
 import cv2
@@ -40,6 +46,49 @@ def class_pose_multi_loss(y, t):
     l_cls = Variable(np.array([],dtype=np.float32))
     l_cls = F.softmax_cross_entropy(cls, t_cls)
     return  l_cls + l_pos
+
+def class_pose_multi_acc(y, t):
+    cls, pos = y
+    t_cls_tmp, t_pos_tmp = F.separate(t, 1)
+    t_cls = Variable(np.array([]).astype(np.float32))
+    t_pos = Variable(np.array([]).astype(np.float32))
+    for i in range(len(t_cls_tmp)):
+        t_cls = concat.concat((t_cls, F.flatten(t_cls_tmp[i].data.astype(np.float32))), 0)
+        t_pos = concat.concat((t_pos, F.flatten(t_pos_tmp[i].data.astype(np.float32))), 0)
+    t_cls = F.reshape(F.flatten(t_cls), (cls.shape[0], cls.shape[2], cls.shape[3]))
+    t_pos = F.reshape(F.flatten(t_pos), pos.shape)
+    t_cls = Variable(t_cls.data.astype(np.int32))
+    acc_pos = F.mean_squared_error(pos, t_pos)
+    l_cls = Variable(np.array([],dtype=np.float32))
+    acc_cls = F.accuracy(cls, t_cls)
+    return  acc_pos
+
+def _transfer_pretrain_resnet50(src, dst):
+    dst.conv1.W.data[:] = src.conv1.W.data
+    dst.conv1.b.data[:] = src.conv1.b.data
+    dst.bn1.avg_mean[:] = src.bn_conv1.avg_mean
+    dst.bn1.avg_var[:] = src.bn_conv1.avg_var
+    dst.bn1.gamma.data[:] = src.scale_conv1.W.data
+    dst.bn1.beta.data[:] = src.scale_conv1.bias.b.data
+
+    R._transfer_block(src, dst.res2, ['2a', '2b', '2c'])
+    R._transfer_block(src, dst.res3, ['3a', '3b', '3c', '3d'])
+    R._transfer_block(src, dst.res4, ['4a', '4b', '4c', '4d', '4e', '4f'])
+    R._transfer_block(src, dst.res5, ['5a', '5b', '5c'])
+
+def _make_chainermodel_npz(path_npz, path_caffemodel, model, num_class):
+    print('Now loading caffemodel (usually it may take few minutes)')
+    if not os.path.exists(path_caffemodel):
+        raise IOError('The pre-trained caffemodel does not exist.')
+    caffemodel = CaffeFunction(path_caffemodel)
+    chainermodel = CenterProposalNetworkRes50FCN(n_class=num_class)
+    _transfer_pretrain_resnet50(caffemodel, chainermodel)
+    classifier_model = L.Classifier(chainermodel)
+    serializers.save_npz(path_npz, classifier_model, compression=False)
+    print('model npz is saved')
+    serializers.load_npz(path_npz, model)
+    return model
+
 
 def load_train_data(path, num_class, num_view, img_size= (480, 640)):
 
@@ -119,27 +168,29 @@ def main():
     print('# epoch: {}'.format(args.epoch))
     print('')
 
-    n_class = 10
-    n_view = 3
-    #  n_view = 37
+    n_class = 2
+    # n_class = 36
+    n_view = 35
     train_path = os.path.join(os.getcwd(), '../train_data/willow_models')
+    caffe_model = 'ResNet-50-model.caffemodel'
 
-    model = L.Classifier(CenterProposalNetworkRes50FCN(n_class=n_class), lossfun=class_pose_multi_loss)
-    model.compute_accuracy = False
+    
+    model = L.Classifier(CenterProposalNetworkRes50FCN(n_class=n_class, pretrained_model=True),
+                         lossfun=class_pose_multi_loss,
+                         accfun=class_pose_multi_acc)
+    # model.compute_accuracy = False
     
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
         model.to_gpu()  # Copy the model to the GPU
 
     # Setup an optimizer
-    optimizer = chainer.optimizers.Adam()
+    optimizer = chainer.optimizers.MomentumSGD(lr=0.01, momentum=0.9)
     optimizer.setup(model)
 
 
     # load pre-train Network
-    #
-    # TODO
-    #
+
 
     print('load train data')
     # load train data
@@ -177,17 +228,17 @@ def main():
     trainer.extend(extensions.LogReport())
 
     # Save two plot images to the result dir
-    if extensions.PlotReport.available():
-        trainer.extend(
-            extensions.PlotReport(['main/loss'],
-                                  'epoch', file_name='loss.png'))
+    # if extensions.PlotReport.available():
+        # trainer.extend(
+        #     extensions.PlotReport(['main/loss'],
+        #                           'epoch', file_name='loss.png'))
         # trainer.extend(
         #     extensions.PlotReport(
         #         ['main/accuracy'],
         #         'epoch', file_name='accuracy.png'))
 
     trainer.extend(extensions.PrintReport(
-        ['epoch', 'main/loss', 'elapsed_time']))
+        ['epoch', 'main/loss', 'main/accuracy', 'elapsed_time']))
 
 
     # Print a progress bar to stdout
@@ -197,9 +248,18 @@ def main():
         # Resume from a snapshot
         chainer.serializers.load_npz(args.resume, trainer)
     else:
-        # load pre-train model
-        pass
-    
+        root = '..'
+        npz_name = 'CenterProposalNetworkRes50FCN.npz'
+        caffemodel_name = 'ResNet-50-model.caffemodel'
+        path = os.path.join(root, 'trained_data/', npz_name)
+        path_caffemodel = os.path.join(root, 'trained_data/', caffemodel_name)
+        print 'npz model path : ' + path
+        print 'caffe model path : ' + path_caffemodel
+        download.cache_or_load_file(
+            path,
+            lambda path: _make_chainermodel_npz(path, path_caffemodel, model, n_class),
+            lambda path: serializers.load_npz(path, model))
+
     # Run the training
     trainer.run()
 
