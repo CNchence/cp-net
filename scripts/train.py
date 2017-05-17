@@ -145,7 +145,6 @@ def main():
     
     model = cp_classifier.CPNetClassifier(CenterProposalNetworkRes50FCN(n_class=n_class,
                                                                         pretrained_model=True))
-    # model.compute_accuracy = False
     
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
@@ -161,13 +160,8 @@ def main():
     # load test data
     # test_rgb, test_depth, test_cls, test_pose = load_test_data(test_path)
 
-    t_append = []
-    for i in range(len(train_cls)):
-        t_append.append([train_cls[i], train_pose[i]])
-    # t_append = np.array(t_append).astype(np.float32)
-    train = tuple_dataset.TupleDataset(train_rgb, train_depth, t_append)
-    # train = tuple_dataset.TupleDataset(train_rgb, train_depth, train_pose)
-    # test = tuple_dataset.TupleDataset((test_rgb, test_depth), (test_cls, test_pose))
+    train = tuple_dataset.TupleDataset(train_rgb, train_depth, train_cls, train_pose)
+    # test = tuple_dataset.TupleDataset(test_rgb, test_depth, test_cls, test_pose)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     # test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
@@ -201,7 +195,9 @@ def main():
         #         'epoch', file_name='accuracy.png'))
 
     trainer.extend(extensions.PrintReport(
-        ['epoch', 'main/loss', 'main/class_accuracy', 'main/pose_accuracy', 'elapsed_time']))
+
+        ['epoch', 'main/loss',  'main/class_loss',  'main/pose_loss',
+         'main/class_accuracy', 'main/pose_accuracy', 'elapsed_time']))
 
 
     # Print a progress bar to stdout
