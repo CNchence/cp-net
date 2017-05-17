@@ -1,9 +1,6 @@
-from chainer import Variable
 import chainer.functions as F
 from chainer import link
 from chainer import reporter
-import numpy as np
-from chainer.functions.array import concat
 
 
 class CPNetClassifier(link.Chain):
