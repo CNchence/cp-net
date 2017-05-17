@@ -58,7 +58,7 @@ def _make_chainermodel_npz(path_npz, path_caffemodel, model, num_class):
     return model
 
 
-def load_train_data(path, num_class, num_view, img_size= (480, 640)):
+def load_train_data(path, num_class, num_view, img_size= (384, 512)):
 
     rgb = np.zeros(3 * img_size[0] * img_size[1] * (num_class - 1)* num_view)
     rgb = rgb.reshape((num_class - 1)*num_view, 3, img_size[1], img_size[0])
@@ -78,20 +78,20 @@ def load_train_data(path, num_class, num_view, img_size= (480, 640)):
         for j in range(num_view):
             v_idx = '{0:08d}'.format(j)
             ## rgb
-            img = cv2.imread(os.path.join(c_path, 'rgb_' + v_idx +'.png'))
+            img = cv2.imread(os.path.join(c_path, 'rgb_' + v_idx +'.png'))[48:432,34:576]
             img = cv2.resize(img, img_size)
             rgb[i * num_view + j] = img.transpose(2, 0, 1)
 
             ## depth
-            d_img = cv2.imread(os.path.join(c_path, 'depth_' + v_idx +'.png'), 1)
-            d_img = cv2.resize(img, img_size)
-            depth[i * num_view + j] = d_img.transpose(2, 0, 1)[0]
+            d_img = cv2.imread(os.path.join(c_path, 'depth_' + v_idx +'.png'), 0)[48:432,34:576]
+            d_img = cv2.resize(d_img, img_size)
+            depth[i * num_view + j] = d_img /255.0
 
             ##  mask
-            mask = cv2.imread(os.path.join(c_path, 'mask_' + v_idx +'.png'), 1) / 255.0
+            mask = cv2.imread(os.path.join(c_path, 'mask_' + v_idx +'.png'))[48:432,34:576] / 255.0
 
             ## center pose with mask
-            dist = np.load(os.path.join(c_path, 'dist_' + v_idx +'.npy'))
+            dist = np.load(os.path.join(c_path, 'dist_' + v_idx +'.npy'))[48:432,34:576]
             dist = cv2.resize(mask * dist, img_size)
             # dist[dist != dist] = -1.0 ## non-nan
             for ii in range(img_size[1]):

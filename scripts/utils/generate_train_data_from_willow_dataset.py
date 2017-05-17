@@ -42,7 +42,8 @@ def main():
             cmd1 ='pcl_pcd2png ' + os.path.join(orig_c_path, 'cloud_' + v_idx + '.pcd') + ' ' + os.path.join(c_path, 'rgb_' + v_idx + '.png')
             os.system(cmd1)
             # 2. generate RGB image
-            cmd2 ='pcl_pcd2png --field z ' + os.path.join(orig_c_path, 'cloud_' + v_idx + '.pcd') + ' ' + os.path.join(c_path, 'depth_' + v_idx + '.png')
+            cmd2 ='pcl_pcd2png --field z --scale no ' + os.path.join(orig_c_path, 'cloud_' + v_idx + '.pcd') + ' ' + os.path.join(c_path, 'depth_' + v_idx + '.png')
+            # cmd2 ='pcl_pcd2png --field z ' + os.path.join(orig_c_path, 'cloud_' + v_idx + '.pcd') + ' ' + os.path.join(c_path, 'depth_' + v_idx + '_viz.png')
             os.system(cmd2)
             # 3 . generate mask image
             f = open(os.path.join(orig_c_path, 'object_indices_' + v_idx + '.txt'), 'r')
