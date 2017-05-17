@@ -56,15 +56,21 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
 
             # depth network
             conv_d1_1 = L.Convolution2D(1, 64, 3, stride=1, pad=1),
+            bn_d1_1 = L.BatchNormalization(64),
             conv_d1_2 = L.Convolution2D(64, 64, 3, stride=1, pad=1),
+            bn_d1_2 = L.BatchNormalization(64),
 
             conv_d2 = L.Convolution2D(64, 128, 3, stride=1, pad=1),
+            bn_d2 = L.BatchNormalization(128),
             conv_d3 = L.Convolution2D(128, 256, 3, stride=1, pad=1),
-
+            bn_d3 = L.BatchNormalization(256),
+            
             # center pose network
-            conv_cp_1 = L.Convolution2D(256 + 512 + 128, 512, 3, stride=1, pad=1),
-            conv_cp_2 = L.Convolution2D(512, 3, 3, stride=1, pad=1),
-            upscore_cp = L.Deconvolution2D(3, 3, 16, stride=8, pad=4, use_cudnn=False),
+            conv_cp_1 = L.Convolution2D(256 + 512 + 128, 1024, 3, stride=1, pad=1),
+            bn_cp_1 = L.BatchNormalization(1024),
+            conv_cp_2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
+            bn_cp_2 = L.BatchNormalization(512),
+            upscore_cp = L.Deconvolution2D(512, 3, 16, stride=8, pad=4, use_cudnn=False),
         )
 
     def __call__(self, x1, x2,  eps=0.001, test=None):
@@ -105,17 +111,17 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
         h = F.relu(self.cls_pool(concat_pool))
         cls_pool1_8 = h
 
-        h_d = F.relu(self.conv_d1_1(h_d))
-        h_d = F.relu(self.conv_d1_2(h_d))
+        h_d = F.relu(self.bn_d1_1(self.conv_d1_1(h_d)))
+        h_d = F.relu(self.bn_d1_2(self.conv_d1_2(h_d)))
         h_d = F.max_pooling_2d(h_d, 2, stride=2, pad=0) # 1/2
-        h_d = F.relu(self.conv_d2(h_d))
+        h_d = F.relu(self.bn_d2(self.conv_d2(h_d)))
         h_d = F.max_pooling_2d(h_d, 2, stride=2, pad=0) # 1/4
-        h_d = F.relu(self.conv_d3(h_d))
+        h_d = F.relu(self.bn_d3(self.conv_d3(h_d)))
         h_d = F.max_pooling_2d(h_d, 2, stride=2, pad=0) # 1/8
 
         h_cp = concat.concat((h_d, pool1_8, cls_pool1_8), axis=1)
-        h_cp = F.relu(self.conv_cp_1(h_cp))
-        h_cp = F.relu(self.conv_cp_2(h_cp))
+        h_cp = F.relu(self.bn_cp_1(self.conv_cp_1(h_cp)))
+        h_cp = F.relu(self.bn_cp_2(self.conv_cp_2(h_cp)))
         cp_score = F.arctan(self.upscore_cp(h_cp))
 
         return score, cp_score
