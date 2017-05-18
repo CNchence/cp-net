@@ -71,6 +71,13 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
             conv_cp_2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
             bn_cp_2 = L.BatchNormalization(512),
             upscore_cp = L.Deconvolution2D(512, 3, 16, stride=8, pad=4, use_cudnn=False),
+
+            # quaternion network
+            conv_q_1 = L.Convolution2D(256 + 512 + 128, 1024, 3, stride=1, pad=1),
+            bn_q_1 = L.BatchNormalization(1024),
+            conv_q_2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
+            bn_q_2 = L.BatchNormalization(512),
+            upscore_q = L.Deconvolution2D(512, 4, 16, stride=8, pad=4, use_cudnn=False),
         )
 
     def __call__(self, x1, x2,  eps=0.001, test=None):
@@ -124,4 +131,9 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
         h_cp = F.relu(self.bn_cp_2(self.conv_cp_2(h_cp)))
         cp_score = F.arctan(self.upscore_cp(h_cp))
 
-        return score, cp_score
+        h_q = concat.concat((h_d, pool1_8, cls_pool1_8), axis=1)
+        h_q = F.relu(self.bn_q_1(self.conv_q_1(h_q)))
+        h_q = F.relu(self.bn_q_2(self.conv_q_2(h_q)))
+        q_score = F.normalize(self.upscore_q(h_q), axis=0)
+
+        return score, cp_score, q_score

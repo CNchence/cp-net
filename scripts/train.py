@@ -138,8 +138,9 @@ def main():
 
     trainer.extend(extensions.PrintReport(
 
-        ['epoch', 'main/loss',  'main/class_loss',  'main/pose_loss',
-         'main/class_accuracy', 'main/pose_accuracy', 'elapsed_time']))
+        ['epoch', 'main/loss',  'main/class_loss',  'main/position_loss',
+         'main/orientation_loss', 'main/class_accuracy', 'main/pose_accuracy',
+         'elapsed_time']))
 
 
     # Print a progress bar to stdout
