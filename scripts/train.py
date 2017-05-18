@@ -17,19 +17,14 @@ import chainer.functions as F
 import chainer.links.model.vision.resnet as R
 
 from chainer.training import extensions
-from chainer.datasets import tuple_dataset
 from chainer.links.caffe import CaffeFunction
-# from chainer.serializers import npz
 
 from cp_network import CenterProposalNetworkRes50FCN
 import cp_classifier
 from preprocessed_dataset import PreprocessedDataset
 
 import argparse
-import cv2
 import os
-
-import math
 import numpy as np
 
 def _transfer_pretrain_resnet50(src, dst):
