@@ -72,7 +72,7 @@ class PreprocessedDataset(dataset.DatasetMixin):
 
         img_depth = img_depth / 255.0  # Scale to [0, 1];
         img_depth =  cv2.resize(img_depth, img_size)
-        img_depth = img_depth.astype(np.float32)
+        img_depth = img_depth.reshape(1, img_size[1], img_size[0]).astype(np.float32)
 
         mask = mask / 255.0  # Scale to [0, 1];
         dist = dist / 255.0  # Scale to [0, 1];
