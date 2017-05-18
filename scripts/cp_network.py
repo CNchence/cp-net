@@ -21,7 +21,7 @@ class CenterProposalNetworkRes50FCNtest(chainer.Chain):
         h = F.relu(self.conv1(h))
         h_d = F.relu(self.conv2(h))
         return h, h_d
-1
+
 class CenterProposalNetworkRes50FCN(chainer.Chain):
     def __init__(self, n_class=36, pretrained_model = None):
         if pretrained_model:
