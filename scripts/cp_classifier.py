@@ -27,8 +27,6 @@ class CPNetClassifier(link.Chain):
         self.y = self.predictor(*x)
         y_cls, y_pos = self.y
 
-        t1 = F.reshape(t1, (t1.shape[0], t1.shape[2], t1.shape[3]))
-
         self.cls_loss = F.softmax_cross_entropy(y_cls, t1)
         self.pos_loss = F.mean_squared_error(y_pos, t2)
         self.loss = self.cls_loss + self.pos_loss

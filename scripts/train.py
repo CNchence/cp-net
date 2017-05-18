@@ -23,6 +23,7 @@ from chainer.links.caffe import CaffeFunction
 
 from cp_network import CenterProposalNetworkRes50FCN
 import cp_classifier
+from preprocessed_dataset import PreprocessedDataset
 
 import argparse
 import cv2
@@ -56,56 +57,6 @@ def _make_chainermodel_npz(path_npz, path_caffemodel, model, num_class):
     print('model npz is saved')
     serializers.load_npz(path_npz, model)
     return model
-
-
-def load_train_data(path, num_class, num_view, img_size= (384, 512)):
-
-    rgb = np.zeros(3 * img_size[0] * img_size[1] * (num_class - 1)* num_view)
-    rgb = rgb.reshape((num_class - 1)*num_view, 3, img_size[1], img_size[0])
-
-    depth = np.zeros(img_size[0] * img_size[1] * (num_class - 1) * num_view)
-    depth = depth.reshape((num_class - 1)*num_view, 1, img_size[1], img_size[0])
-
-    t_cls = np.zeros( img_size[0] * img_size[1] * (num_class - 1) * num_view)
-    t_cls = t_cls.reshape((num_class - 1)*num_view, 1, img_size[1], img_size[0])
-
-    t_pose = np.zeros(3 * img_size[0] * img_size[1] * (num_class - 1) * num_view)
-    t_pose = t_pose.reshape((num_class - 1) *num_view, 3, img_size[1], img_size[0])
-
-    for i in range(num_class -1):
-        c_idx =  '{0:02d}'.format(i+1)
-        c_path = os.path.join(path, 'object_' + c_idx)
-        for j in range(num_view):
-            v_idx = '{0:08d}'.format(j)
-            ## rgb
-            img = cv2.imread(os.path.join(c_path, 'rgb_' + v_idx +'.png'))[48:432,34:576]
-            img = cv2.resize(img, img_size)
-            rgb[i * num_view + j] = img.transpose(2, 0, 1)
-
-            ## depth
-            d_img = cv2.imread(os.path.join(c_path, 'depth_' + v_idx +'.png'), 0)[48:432,34:576]
-            d_img = cv2.resize(d_img, img_size)
-            depth[i * num_view + j] = d_img /255.0
-
-            ##  mask
-            mask = cv2.imread(os.path.join(c_path, 'mask_' + v_idx +'.png'))[48:432,34:576] / 255.0
-
-            ## center pose with mask
-            dist = np.load(os.path.join(c_path, 'dist_' + v_idx +'.npy'))[48:432,34:576]
-            dist = cv2.resize(mask * dist, img_size)
-            # dist[dist != dist] = -1.0 ## non-nan
-            for ii in range(img_size[1]):
-                for jj in range(img_size[0]):
-                    if math.isnan(dist[ii][jj][0]) or math.isnan(dist[ii][jj][0]) or math.isnan(dist[ii][jj][0]):
-                        dist[ii][jj] = [-1, -1, -1]
-            t_pose[i * num_view + j] = dist.transpose(2, 0, 1)
-
-            ## class prob
-            mask = cv2.resize(mask, img_size)
-            t_cls[i * num_view + j][0] = mask.transpose(2,0,1)[0] * (i + 1)
-
-
-    return rgb.astype(np.float32), depth.astype(np.float32), t_cls.astype(np.int32), t_pose.astype(np.float32)
 
 
 def main():
@@ -145,7 +96,7 @@ def main():
     
     model = cp_classifier.CPNetClassifier(CenterProposalNetworkRes50FCN(n_class=n_class,
                                                                         pretrained_model=True))
-    
+
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
         model.to_gpu()  # Copy the model to the GPU
@@ -154,14 +105,10 @@ def main():
     optimizer = chainer.optimizers.MomentumSGD(lr=0.01, momentum=0.9)
     optimizer.setup(model)
 
-    print('load train data')
     # load train data
-    train_rgb, train_depth, train_cls, train_pose = load_train_data(train_path, n_class, n_view)
+    train = PreprocessedDataset(train_path, n_class, n_view)
     # load test data
-    # test_rgb, test_depth, test_cls, test_pose = load_test_data(test_path)
-
-    train = tuple_dataset.TupleDataset(train_rgb, train_depth, train_cls, train_pose)
-    # test = tuple_dataset.TupleDataset(test_rgb, test_depth, test_cls, test_pose)
+    # test = PreprocessedDataset(train_path, n_class, n_view)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     # test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
