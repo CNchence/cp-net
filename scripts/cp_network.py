@@ -108,7 +108,7 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
         h = F.relu(self.concat_conv(h))
         concat_pool = h
 
-        # score
+         # score
         h = F.relu(self.score_pool(concat_pool))
         score1_8 = h
         h = F.relu(self.upscore_final(h))
@@ -134,6 +134,6 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
         h_q = concat.concat((h_d, pool1_8, cls_pool1_8), axis=1)
         h_q = F.relu(self.bn_q_1(self.conv_q_1(h_q)))
         h_q = F.relu(self.bn_q_2(self.conv_q_2(h_q)))
-        q_score = F.normalize(self.upscore_q(h_q), axis=0)
+        q_score = F.normalize(self.upscore_q(h_q), axis=1)
 
         return score, cp_score, q_score
