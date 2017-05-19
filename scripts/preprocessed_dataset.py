@@ -17,7 +17,7 @@ def calc_quaternion(rot):
 
 class PreprocessedDataset(dataset.DatasetMixin):
 
-    def __init__(self, path, num_class, num_view, img_size=(512, 384), random=True):
+    def __init__(self, path, num_class, num_view, img_size=(256, 192), random=True):
         self.base = path
         self.n_class = num_class
         self.n_view = num_view
