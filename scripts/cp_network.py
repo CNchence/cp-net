@@ -77,7 +77,8 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
             bn_q_1 = L.BatchNormalization(1024),
             conv_q_2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
             bn_q_2 = L.BatchNormalization(512),
-            upscore_q = L.Deconvolution2D(512, 4, 16, stride=8, pad=4, use_cudnn=False),
+            upscore_q0 = L.Deconvolution2D(512, 1, 16, stride=8, pad=4, use_cudnn=False),
+            upscore_q = L.Deconvolution2D(512, 3, 16, stride=8, pad=4, use_cudnn=False),
         )
 
     def __call__(self, x1, x2,  eps=0.001, test=None):
@@ -134,6 +135,7 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
         h_q = concat.concat((h_d, pool1_8, cls_pool1_8), axis=1)
         h_q = F.relu(self.bn_q_1(self.conv_q_1(h_q)))
         h_q = F.relu(self.bn_q_2(self.conv_q_2(h_q)))
-        q_score = F.normalize(self.upscore_q(h_q), axis=1)
+        
+        q_score = concat.concat((F.sigmoid(self.upscore_q0(h_q)), F.tanh(self.upscore_q(h_q))), axis=1)
 
         return score, cp_score, q_score
