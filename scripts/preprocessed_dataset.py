@@ -17,20 +17,22 @@ def calc_quaternion(rot):
 
 class PreprocessedDataset(dataset.DatasetMixin):
 
-    def __init__(self, path, num_class, num_view, img_size=(256, 192), random=True):
+    def __init__(self, path, class_indices, view_indices, img_size=(256, 192), random=True):
         self.base = path
-        self.n_class = num_class
-        self.n_view = num_view
+        self.n_class = len(class_indices)
+        self.n_view = len(view_indices)
+        self.class_indices = class_indices
+        self.view_indices = view_indices
         self.img_size = img_size
         # self.mean = mean.astype('f')
         # self.random = random
 
     def __len__(self):
-        return (self.n_class - 1) * self.n_view
+        return self.n_class * self.n_view
 
     def load_orig_data(self, c_idx, v_idx):
         v_idx_format = '{0:08d}'.format(v_idx)
-        c_idx_format = 'object_' + '{0:02d}'.format(c_idx + 1)
+        c_idx_format = 'object_' + '{0:02d}'.format(c_idx)
         c_path = os.path.join(self.base, c_idx_format)
         rgb = cv2.imread(os.path.join(c_path, 'rgb_' + v_idx_format +'.png'))
         depth = cv2.imread(os.path.join(c_path, 'depth_' + v_idx_format +'.png'), 0)
@@ -43,8 +45,8 @@ class PreprocessedDataset(dataset.DatasetMixin):
 
     def get_example(self, i):
         img_size = self.img_size
-        c_i = i // self.n_view
-        v_i = i % self.n_view
+        c_i = self.class_indices[i // self.n_view]
+        v_i = self.view_indices[i % self.n_view]
         img_rgb, img_depth, mask, dist, rot = self.load_orig_data(c_i, v_i)
 
         # image, label = self.base[i]
@@ -93,7 +95,7 @@ class PreprocessedDataset(dataset.DatasetMixin):
         pose = dist.transpose(2,0,1).astype(np.float32)
 
         mask = cv2.resize(mask, img_size)
-        label = mask.transpose(2,0,1)[0] * (c_i + 1)
+        label = mask.transpose(2,0,1)[0] * c_i
 
         mask_one = mask.transpose(2,0,1)[0]
         mask9 = np.tile(mask_one.flatten(), 9).reshape(9, mask_one.shape[0], mask_one.shape[1])

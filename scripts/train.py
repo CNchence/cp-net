@@ -84,7 +84,7 @@ def main():
 
     n_class = 2
     # n_class = 36
-    n_view = 1
+    n_view = 35
     train_path = os.path.join(os.getcwd(), '../train_data/willow_models')
     caffe_model = 'ResNet-50-model.caffemodel'
 
@@ -101,13 +101,13 @@ def main():
     optimizer.setup(model)
 
     # load train data
-    train = PreprocessedDataset(train_path, n_class, n_view)
+    train = PreprocessedDataset(train_path, range(1,n_class), range(0, n_view - 2))
     # load test data
-    # test = PreprocessedDataset(train_path, n_class, n_view)
+    test = PreprocessedDataset(train_path, range(1,n_class), range(n_view - 2, n_view))
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
-    # test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
-    #                                              repeat=False, shuffle=False)
+    test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
+                                                 repeat=False, shuffle=False)
 
     updater = training.StandardUpdater(train_iter, optimizer, device=args.gpu)
     trainer = training.Trainer(updater, (args.epoch, 'epoch'), out=args.out)
@@ -138,8 +138,10 @@ def main():
 
     trainer.extend(extensions.PrintReport(
 
-        ['epoch', 'main/loss',  'main/class_loss',  'main/position_loss',
-         'main/orientation_loss', 'main/class_accuracy', 'main/pose_accuracy',
+        ['epoch',  'main/class_loss',  'main/position_loss',
+         'main/orientation_loss', 'main/class_accuracy',
+         'validation/class_loss',  'validation/position_loss',
+         'validation/orientation_loss', 'validation/class_accuracy',
          'elapsed_time']))
 
 
