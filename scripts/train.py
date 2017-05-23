@@ -114,7 +114,9 @@ def main():
 
 
     # Evaluate the model with the test dataset for each epoch
-    # trainer.extend(extensions.Evaluator(test_iter, model, device=args.gpu))
+    evaluator = extensions.Evaluator(test_iter, model, device=args.gpu)
+    evaluator.default_name = 'val'
+    trainer.extend(evaluator)
 
     # The "main" refers to the target link of the "main" optimizer.
     trainer.extend(extensions.dump_graph('main/loss'))
@@ -140,8 +142,8 @@ def main():
 
         ['epoch',  'main/class_loss',  'main/position_loss',
          'main/orientation_loss', 'main/class_accuracy',
-         'validation/class_loss',  'validation/position_loss',
-         'validation/orientation_loss', 'validation/class_accuracy',
+         'val/main/class_loss',  'val/main/position_loss',
+         'val/main/orientation_loss', 'val/main/class_accuracy',
          'elapsed_time']))
 
 
