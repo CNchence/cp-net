@@ -72,12 +72,12 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
             bn_cp_2 = L.BatchNormalization(512),
             upscore_cp = L.Deconvolution2D(512, 3, 16, stride=8, pad=4, use_cudnn=False),
 
-            # quaternion network
+            # rotation network
             conv_rot_1 = L.Convolution2D(256 + 512 + 128, 1024, 3, stride=1, pad=1),
             bn_rot_1 = L.BatchNormalization(1024),
             conv_rot_2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
             bn_rot_2 = L.BatchNormalization(512),
-            upscore_rot = L.Deconvolution2D(512, 9, 16, stride=8, pad=4, use_cudnn=False),
+            upscore_rot = L.Deconvolution2D(512, 5, 16, stride=8, pad=4, use_cudnn=False),
         )
 
     def __call__(self, x1, x2,  eps=0.001, test=None):
@@ -134,6 +134,6 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
         h_rot = concat.concat((h_d, pool1_8, cls_pool1_8), axis=1)
         h_rot = F.relu(self.bn_rot_1(self.conv_rot_1(h_rot)))
         h_rot = F.relu(self.bn_rot_2(self.conv_rot_2(h_rot)))
-        rot_score = F.tanh(self.upscore_rot(h_rot))
+        rot_score = F.arctan(self.upscore_rot(h_rot))
 
         return score, cp_score, rot_score

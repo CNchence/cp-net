@@ -15,6 +15,24 @@ def calc_quaternion(rot):
     quat[3] = np.sign(rot[1,0] - rot[0,1]) * (-rot[0,0] - rot[1,1] + rot[2,2] + 1.0) / 4.0
     return quat
 
+def rpy_param(rot):
+    return np.array([rot[0,0], rot[1,0], rot[2,0], rot[2,1], rot[2,2]])
+
+def calc_rpy(rot, eps=10e-5):
+    # r-p-y eular angle
+    # return array : [tan_x, sin_y, tan_z]
+    #
+    if rot[2,2] != 0 :
+        tan_x = rot[2,1] / rot[2,2]
+    else:
+        tan_x = rot[2,1] / (rot[2,2] + eps)
+    sin_y = - rot[2,0]
+    if rot[0,0] != 0 :
+        tan_z = rot[1,0] / rot[0,0]
+    else:
+        tan_z = rot[1,0] / (rot[0,0] + eps)
+    return np.array([tan_x, sin_y, tan_z])
+
 class PreprocessedDataset(dataset.DatasetMixin):
 
     def __init__(self, path, class_indices, view_indices, img_size=(256, 192), random=True):
@@ -39,9 +57,10 @@ class PreprocessedDataset(dataset.DatasetMixin):
         mask = cv2.imread(os.path.join(c_path, 'mask_' + v_idx_format +'.png'))
         dist = np.load(os.path.join(c_path, 'dist_' + v_idx_format +'.npy'))
         rot = np.load(os.path.join(c_path, 'rot_' + v_idx_format +'.npy'))
-        rot = rot.flatten()
+        # rot = rot.flatten()
         # quat = calc_quaternion(rot)
-        return rgb, depth, mask, dist, rot
+        rpy = rpy_param(rot)
+        return rgb, depth, mask, dist, rpy
 
     def get_example(self, i):
         img_size = self.img_size
@@ -98,8 +117,8 @@ class PreprocessedDataset(dataset.DatasetMixin):
         label = mask.transpose(2,0,1)[0] * c_i
 
         mask_one = mask.transpose(2,0,1)[0]
-        mask9 = np.tile(mask_one.flatten(), 9).reshape(9, mask_one.shape[0], mask_one.shape[1])
-        orientation = mask9 * rot[:,np.newaxis,np.newaxis]
+        mask5 = np.tile(mask_one.flatten(), 5).reshape(5, mask_one.shape[0], mask_one.shape[1])
+        orientation = mask5 * rot[:,np.newaxis,np.newaxis]
         # orientation = np.array([mask_one * quat[0], mask_one * quat[1],
         #                         mask_one * quat[2], mask_one * quat[3]], dtype=np.float32)
         return img_rgb, img_depth, label.astype(np.int32), pose, orientation.astype(np.float32)
