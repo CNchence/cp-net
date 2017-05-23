@@ -37,14 +37,15 @@ class PreprocessedDataset(dataset.DatasetMixin):
         mask = cv2.imread(os.path.join(c_path, 'mask_' + v_idx_format +'.png'))
         dist = np.load(os.path.join(c_path, 'dist_' + v_idx_format +'.npy'))
         rot = np.load(os.path.join(c_path, 'rot_' + v_idx_format +'.npy'))
-        quat = calc_quaternion(rot)
-        return rgb, depth, mask, dist, quat
+        rot = rot.flatten()
+        # quat = calc_quaternion(rot)
+        return rgb, depth, mask, dist, rot
 
     def get_example(self, i):
         img_size = self.img_size
         c_i = i // self.n_view
         v_i = i % self.n_view
-        img_rgb, img_depth, mask, dist, quat = self.load_orig_data(c_i, v_i)
+        img_rgb, img_depth, mask, dist, rot = self.load_orig_data(c_i, v_i)
 
         # image, label = self.base[i]
         # _, h, w = image.shape
@@ -95,9 +96,10 @@ class PreprocessedDataset(dataset.DatasetMixin):
         label = mask.transpose(2,0,1)[0] * (c_i + 1)
 
         mask_one = mask.transpose(2,0,1)[0]
-        orientation = np.array([mask_one * quat[0], mask_one * quat[1],
-                                mask_one * quat[2], mask_one * quat[3]], dtype=np.float32)
-
-        return img_rgb, img_depth, label.astype(np.int32), pose, orientation
+        mask9 = np.tile(mask_one.flatten(), 9).reshape(9, mask_one.shape[0], mask_one.shape[1])
+        orientation = mask9 * rot[:,np.newaxis,np.newaxis]
+        # orientation = np.array([mask_one * quat[0], mask_one * quat[1],
+        #                         mask_one * quat[2], mask_one * quat[3]], dtype=np.float32)
+        return img_rgb, img_depth, label.astype(np.int32), pose, orientation.astype(np.float32)
 
 

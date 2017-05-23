@@ -73,12 +73,11 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
             upscore_cp = L.Deconvolution2D(512, 3, 16, stride=8, pad=4, use_cudnn=False),
 
             # quaternion network
-            conv_q_1 = L.Convolution2D(256 + 512 + 128, 1024, 3, stride=1, pad=1),
-            bn_q_1 = L.BatchNormalization(1024),
-            conv_q_2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
-            bn_q_2 = L.BatchNormalization(512),
-            upscore_q0 = L.Deconvolution2D(512, 1, 16, stride=8, pad=4, use_cudnn=False),
-            upscore_q = L.Deconvolution2D(512, 3, 16, stride=8, pad=4, use_cudnn=False),
+            conv_rot_1 = L.Convolution2D(256 + 512 + 128, 1024, 3, stride=1, pad=1),
+            bn_rot_1 = L.BatchNormalization(1024),
+            conv_rot_2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
+            bn_rot_2 = L.BatchNormalization(512),
+            upscore_rot = L.Deconvolution2D(512, 9, 16, stride=8, pad=4, use_cudnn=False),
         )
 
     def __call__(self, x1, x2,  eps=0.001, test=None):
@@ -132,10 +131,9 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
         h_cp = F.relu(self.bn_cp_2(self.conv_cp_2(h_cp)))
         cp_score = F.arctan(self.upscore_cp(h_cp))
 
-        h_q = concat.concat((h_d, pool1_8, cls_pool1_8), axis=1)
-        h_q = F.relu(self.bn_q_1(self.conv_q_1(h_q)))
-        h_q = F.relu(self.bn_q_2(self.conv_q_2(h_q)))
-        
-        q_score = concat.concat((F.sigmoid(self.upscore_q0(h_q)), F.tanh(self.upscore_q(h_q))), axis=1)
+        h_rot = concat.concat((h_d, pool1_8, cls_pool1_8), axis=1)
+        h_rot = F.relu(self.bn_rot_1(self.conv_rot_1(h_rot)))
+        h_rot = F.relu(self.bn_rot_2(self.conv_rot_2(h_rot)))
+        rot_score = F.tanh(self.upscore_rot(h_rot))
 
-        return score, cp_score, q_score
+        return score, cp_score, rot_score
