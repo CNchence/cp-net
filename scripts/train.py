@@ -84,7 +84,7 @@ def main():
 
     n_class = 2
     # n_class = 36
-    n_view = 1
+    n_view = 35
     train_path = os.path.join(os.getcwd(), '../train_data/willow_models')
     caffe_model = 'ResNet-50-model.caffemodel'
 
@@ -101,20 +101,22 @@ def main():
     optimizer.setup(model)
 
     # load train data
-    train = PreprocessedDataset(train_path, n_class, n_view)
+    train = PreprocessedDataset(train_path, range(1,n_class), range(0, n_view - 2))
     # load test data
-    # test = PreprocessedDataset(train_path, n_class, n_view)
+    test = PreprocessedDataset(train_path, range(1,n_class), range(n_view - 2, n_view))
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
-    # test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
-    #                                              repeat=False, shuffle=False)
+    test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
+                                                 repeat=False, shuffle=False)
 
     updater = training.StandardUpdater(train_iter, optimizer, device=args.gpu)
     trainer = training.Trainer(updater, (args.epoch, 'epoch'), out=args.out)
 
 
     # Evaluate the model with the test dataset for each epoch
-    # trainer.extend(extensions.Evaluator(test_iter, model, device=args.gpu))
+    evaluator = extensions.Evaluator(test_iter, model, device=args.gpu)
+    evaluator.default_name = 'val'
+    trainer.extend(evaluator)
 
     # The "main" refers to the target link of the "main" optimizer.
     trainer.extend(extensions.dump_graph('main/loss'))
@@ -138,8 +140,10 @@ def main():
 
     trainer.extend(extensions.PrintReport(
 
-        ['epoch', 'main/loss',  'main/class_loss',  'main/position_loss',
-         'main/orientation_loss', 'main/class_accuracy', 'main/pose_accuracy',
+        ['epoch',  'main/class_loss',  'main/position_loss',
+         'main/orientation_loss', 'main/class_accuracy',
+         'val/main/class_loss',  'val/main/position_loss',
+         'val/main/orientation_loss', 'val/main/class_accuracy',
          'elapsed_time']))
 
 
