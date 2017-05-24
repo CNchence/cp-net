@@ -60,7 +60,7 @@ class PreprocessedDataset(dataset.DatasetMixin):
         # rot = rot.flatten()
         # quat = calc_quaternion(rot)
         rpy = rpy_param(rot)
-        return rgb, depth, mask, dist, rpy
+        return rgb, depth, mask, dist, rot, pc
 
     def get_example(self, i):
         img_size = self.img_size

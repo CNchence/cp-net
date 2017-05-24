@@ -84,7 +84,7 @@ def main():
 
     n_class = 2
     # n_class = 36
-    n_view = 35
+    n_view = 10
     train_path = os.path.join(os.getcwd(), '../train_data/willow_models')
     caffe_model = 'ResNet-50-model.caffemodel'
 
@@ -140,10 +140,10 @@ def main():
 
     trainer.extend(extensions.PrintReport(
 
-        ['epoch',  'main/class_loss',  'main/position_loss',
-         'main/orientation_loss', 'main/class_accuracy',
-         'val/main/class_loss',  'val/main/position_loss',
-         'val/main/orientation_loss', 'val/main/class_accuracy',
+        ['epoch',  'main/class_loss',  'main/pos_loss',
+         'main/rot_loss', 'main/class_acc', 'main/pose_acc',
+         'val/main/class_loss',  'val/main/pos_loss',
+         'val/main/rot_loss', 'val/main/class_acc', 'val/main/pose_acc',
          'elapsed_time']))
 
 
