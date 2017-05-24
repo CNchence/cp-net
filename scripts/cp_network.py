@@ -134,6 +134,6 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
         h_rot = concat.concat((h_d, pool1_8, cls_pool1_8), axis=1)
         h_rot = F.relu(self.bn_rot_1(self.conv_rot_1(h_rot)))
         h_rot = F.relu(self.bn_rot_2(self.conv_rot_2(h_rot)))
-        rot_score = F.arctan(self.upscore_rot(h_rot))
+        rot_score = F.tanh(self.upscore_rot(h_rot))
 
         return score, cp_score, rot_score
