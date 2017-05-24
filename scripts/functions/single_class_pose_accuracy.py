@@ -28,7 +28,7 @@ class SingleClassPoseAccuracy(function.Function):
 
         cls_count = xp.array([len(xp.where(pred == i)[0]) for i in range(len(y_cls))])
         # print cls_count
-        obj_cls = xp.argmax(cls_count[:1]) + 1
+        obj_cls = xp.argmax(cls_count[1:]) + 1
 
         pc_mask = xp.invert(xp.isnan(t_pc))[0]
         t_pc[xp.isnan(t_pc)] = 0
