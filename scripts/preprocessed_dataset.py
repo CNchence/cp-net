@@ -112,7 +112,7 @@ class PreprocessedDataset(dataset.DatasetMixin):
 
         mask_one = mask.transpose(2,0,1)[0]
         mask5 = np.tile(mask_one.flatten(), 5).reshape(5, mask_one.shape[0], mask_one.shape[1])
-        orientation = mask5 * rot[:,np.newaxis, np.newaxis]
+        rot_map = mask5 * rot[:,np.newaxis, np.newaxis]
         # orientation = np.array([mask_one * quat[0], mask_one * quat[1],
         #                         mask_one * quat[2], mask_one * quat[3]], dtype=np.float32)
 
@@ -121,4 +121,4 @@ class PreprocessedDataset(dataset.DatasetMixin):
         dist_map = pos[:,np.newaxis,np.newaxis] - dist_map
         dist_map[dist_map!=dist_map] = 0
 
-        return img_rgb, img_depth, label.astype(np.int32), dist_map.astype(np.float32), pos, orientation.astype(np.float32), pc.astype(np.float32)
+        return img_rgb, img_depth, label.astype(np.int32), dist_map.astype(np.float32), pos, rot, rot_map.astype(np.float32), pc.astype(np.float32)

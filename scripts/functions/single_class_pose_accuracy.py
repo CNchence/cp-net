@@ -11,12 +11,15 @@ class SingleClassPoseAccuracy(function.Function):
 
     def forward(self, inputs):
         xp = cuda.get_array_module(*inputs)
-        y_cls, y_pos,  t_pos, t_pc = inputs
+        y_cls, y_pos, y_rot, t_pos, t_rot, t_pc = inputs
 
         y_cls = y_cls[0]
         y_pos = y_pos[0]
+        y_rot = y_rot[0]
         t_pos = t_pos[0]
+        t_rot = t_rot[0]
         t_pc = t_pc[0]
+
         prob = xp.max(y_cls, axis=0)
         pred = xp.argmax(y_cls, axis=0)
 
@@ -34,17 +37,19 @@ class SingleClassPoseAccuracy(function.Function):
         pred_cnt = pred_mask.sum()
 
         if pred_cnt == 0 :
-            return xp.asarray(xp.nan, dtype=y_pos.dtype),
+            return xp.asarray(4, dtype=y_pos.dtype), xp.asarray(4, dtype=y_rot.dtype),
         else:
 
             prob_weight = (pred_mask * prob) / (pred_mask * prob).sum()
             estimated_pos =  xp.sum(xp.sum(prob_weight * (y_pos + t_pc), axis=1),axis=1)
 
+            estimated_rot =  xp.sum(xp.sum(prob_weight * y_rot, axis=1),axis=1)
             # print estimated_pos
             # print t_pos
 
-            ret = xp.sqrt(xp.square(estimated_pos - t_pos).sum())
-            return xp.asarray(ret, dtype=y_pos.dtype),
+            ret_pos = xp.sqrt(xp.square(estimated_pos - t_pos).sum())
+            ret_rot = xp.sqrt(xp.square(estimated_rot - t_rot).sum())
+            return xp.asarray(ret_pos, dtype=y_pos.dtype), xp.asarray(ret_rot, dtype=y_rot.dtype),
 
-def single_class_pose_accuracy(y_cls, y_pos, t_pos, t_pc, eps=0.2):
-    return SingleClassPoseAccuracy(eps=eps)(y_cls, y_pos, t_pos, t_pc)
+def single_class_pose_accuracy(y_cls, y_pos, y_rot, t_pos, t_rot, t_pc, eps=0.2):
+    return SingleClassPoseAccuracy(eps=eps)(y_cls, y_pos, y_rot, t_pos, t_rot, t_pc)

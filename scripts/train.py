@@ -140,10 +140,10 @@ def main():
 
     trainer.extend(extensions.PrintReport(
 
-        ['epoch',  'main/class_loss',  'main/pos_loss',
-         'main/rot_loss', 'main/class_acc', 'main/pose_acc',
-         'val/main/class_loss',  'val/main/pos_loss',
-         'val/main/rot_loss', 'val/main/class_acc', 'val/main/pose_acc',
+        ['epoch',  'main/c_loss',  'main/p_loss', 'main/r_loss',
+         'main/c_acc', 'main/p_acc', 'main/r_acc',
+         'val/main/c_loss',  'val/main/p_loss', 'val/main/r_loss',
+         'val/main/c_acc', 'val/main/p_acc', 'val/main/r_acc',
          'elapsed_time']))
 
 
