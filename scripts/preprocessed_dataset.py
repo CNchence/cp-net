@@ -55,18 +55,19 @@ class PreprocessedDataset(dataset.DatasetMixin):
         rgb = cv2.imread(os.path.join(c_path, 'rgb_' + v_idx_format +'.png'))
         depth = cv2.imread(os.path.join(c_path, 'depth_' + v_idx_format +'.png'), 0)
         mask = cv2.imread(os.path.join(c_path, 'mask_' + v_idx_format +'.png'))
-        dist = np.load(os.path.join(c_path, 'dist_' + v_idx_format +'.npy'))
+        pos = np.load(os.path.join(c_path, 'pos_' + v_idx_format +'.npy'))
         rot = np.load(os.path.join(c_path, 'rot_' + v_idx_format +'.npy'))
         # rot = rot.flatten()
         # quat = calc_quaternion(rot)
         rpy = rpy_param(rot)
-        return rgb, depth, mask, dist, rot, pc
+        pc = np.load(os.path.join(c_path, 'pc_' + v_idx_format +'.npy'))
+        return rgb, depth, mask, pos, rpy, pc
 
     def get_example(self, i):
         img_size = self.img_size
         c_i = self.class_indices[i // self.n_view]
         v_i = self.view_indices[i % self.n_view]
-        img_rgb, img_depth, mask, dist, rot = self.load_orig_data(c_i, v_i)
+        img_rgb, img_depth, mask, pos, rot, pc = self.load_orig_data(c_i, v_i)
 
         # image, label = self.base[i]
         # _, h, w = image.shape
@@ -96,7 +97,7 @@ class PreprocessedDataset(dataset.DatasetMixin):
         img_rgb = img_rgb[48:432,34:576]
         img_depth = img_depth[48:432,34:576]
         mask = mask[48:432,34:576]
-        dist = dist[48:432,34:576]
+        pc =  pc[48:432,34:576]
 
         img_rgb = img_rgb / 255.0  # Scale to [0, 1];
         img_rgb = cv2.resize(img_rgb, img_size)
@@ -106,21 +107,18 @@ class PreprocessedDataset(dataset.DatasetMixin):
         img_depth = img_depth.reshape(1, img_size[1], img_size[0]).astype(np.float32)
 
         mask = mask / 255.0  # Scale to [0, 1];
-        dist = dist / 255.0  # Scale to [0, 1];
-
-        dist = cv2.resize(mask * dist, img_size)
-        dist[dist!=dist] = -1.0 # non-nan
-
-        pose = dist.transpose(2,0,1).astype(np.float32)
-
         mask = cv2.resize(mask, img_size)
         label = mask.transpose(2,0,1)[0] * c_i
 
         mask_one = mask.transpose(2,0,1)[0]
         mask5 = np.tile(mask_one.flatten(), 5).reshape(5, mask_one.shape[0], mask_one.shape[1])
-        orientation = mask5 * rot[:,np.newaxis,np.newaxis]
+        orientation = mask5 * rot[:,np.newaxis, np.newaxis]
         # orientation = np.array([mask_one * quat[0], mask_one * quat[1],
         #                         mask_one * quat[2], mask_one * quat[3]], dtype=np.float32)
-        return img_rgb, img_depth, label.astype(np.int32), pose, orientation.astype(np.float32)
 
+        pc = cv2.resize(pc, img_size).transpose(2,0,1)
+        dist_map = pc
+        dist_map = pos[:,np.newaxis,np.newaxis] - dist_map
+        dist_map[dist_map!=dist_map] = 0
 
+        return img_rgb, img_depth, label.astype(np.int32), dist_map.astype(np.float32), pos, orientation.astype(np.float32), pc.astype(np.float32)

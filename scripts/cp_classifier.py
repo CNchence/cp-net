@@ -20,8 +20,8 @@ class CPNetClassifier(link.Chain):
 
     def __call__(self, *args):
         assert len(args) >= 2
-        x = args[:-4]
-        t_cls, t_pos, t_rot, t_pc = args[-4:]
+        x = args[:-5]
+        t_cls, t_dist, t_pos, t_rot, t_pc = args[-5:]
         self.y = None
         self.loss = None
         self.class_acc = None
@@ -29,7 +29,7 @@ class CPNetClassifier(link.Chain):
         self.y = self.predictor(*x)
         y_cls, y_pos, y_rot = self.y
         self.cls_loss = F.softmax_cross_entropy(y_cls, t_cls)
-        self.pos_loss = F.mean_squared_error(y_pos, t_pos)
+        self.pos_loss = F.mean_squared_error(y_pos, t_dist)
         self.q_loss = F.mean_squared_error(y_rot, t_rot)
         self.loss = self.cls_loss + self.pos_loss + self.q_loss
         reporter.report({'class_loss': self.cls_loss}, self)
@@ -38,8 +38,7 @@ class CPNetClassifier(link.Chain):
         reporter.report({'loss': self.loss}, self)
         if self.compute_accuracy:
             self.class_acc = F.accuracy(y_cls, t_cls)
-            self.pose_acc = single_class_pose_accuracy.single_class_pose_accuracy(y_cls, y_pos, t_cls,  t_pos, t_pc)
-            # self.pose_accuracy = F.mean_squared_error(y_pos, t_pos)
+            self.pose_acc = single_class_pose_accuracy.single_class_pose_accuracy(y_cls, y_pos, t_pos, t_pc, eps=0)
             reporter.report({'class_acc': self.class_acc}, self)
             reporter.report({'pose_acc': self.pose_acc}, self)
         return self.loss
