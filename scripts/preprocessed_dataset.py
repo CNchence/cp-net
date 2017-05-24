@@ -94,10 +94,14 @@ class PreprocessedDataset(dataset.DatasetMixin):
         # image *= (1.0 / 255.0)  # Scale to [0, 1];
 
         ## temporary crop
-        img_rgb = img_rgb[48:432,34:576]
-        img_depth = img_depth[48:432,34:576]
-        mask = mask[48:432,34:576]
-        pc =  pc[48:432,34:576]
+        # img_rgb = img_rgb[48:432,34:576]
+        # img_depth = img_depth[48:432,34:576]
+        # mask = mask[48:432,34:576]
+        # pc =  pc[48:432,34:576]
+        img_rgb = img_rgb[140:332,160:416]
+        img_depth = img_depth[140:332,160:416]
+        mask = mask[140:332,160:416]
+        pc =  pc[140:332,160:416]
 
         img_rgb = img_rgb / 255.0  # Scale to [0, 1];
         img_rgb = cv2.resize(img_rgb, img_size)
