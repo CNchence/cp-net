@@ -68,16 +68,20 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
             # center pose network
             conv_cp_1 = L.Convolution2D(256 + 512 + 128, 1024, 3, stride=1, pad=1),
             bn_cp_1 = L.BatchNormalization(1024),
-            conv_cp_2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
-            bn_cp_2 = L.BatchNormalization(512),
-            upscore_cp = L.Deconvolution2D(512, 3, 16, stride=8, pad=4, use_cudnn=False),
+            conv_cp_2 = L.Convolution2D(1024, 1024, 3, stride=1, pad=1),
+            bn_cp_2 = L.BatchNormalization(1024),
+            upscore_cp1 = L.Deconvolution2D(1024, 512, 8, stride=4, pad=2, use_cudnn=False),
+            bn_cp_3 = L.BatchNormalization(512),
+            upscore_cp2 = L.Deconvolution2D(512, 3, 4, stride=2, pad=1, use_cudnn=False),
 
             # rotation network
             conv_rot_1 = L.Convolution2D(256 + 512 + 128, 1024, 3, stride=1, pad=1),
             bn_rot_1 = L.BatchNormalization(1024),
-            conv_rot_2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
-            bn_rot_2 = L.BatchNormalization(512),
-            upscore_rot = L.Deconvolution2D(512, 5, 16, stride=8, pad=4, use_cudnn=False),
+            conv_rot_2 = L.Convolution2D(1024, 1024, 3, stride=1, pad=1),
+            bn_rot_2 = L.BatchNormalization(1024),
+            upscore_rot1 = L.Deconvolution2D(1024, 512, 8, stride=4, pad=2, use_cudnn=False),
+            bn_rot_3 = L.BatchNormalization(512),
+            upscore_rot2 = L.Deconvolution2D(512, 5, 4, stride=2, pad=1, use_cudnn=False),
         )
 
     def __call__(self, x1, x2,  eps=0.001, test=None):
@@ -129,11 +133,13 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
         h_cp = concat.concat((h_d, pool1_8, cls_pool1_8), axis=1)
         h_cp = F.relu(self.bn_cp_1(self.conv_cp_1(h_cp)))
         h_cp = F.relu(self.bn_cp_2(self.conv_cp_2(h_cp)))
-        cp_score = F.arctan(self.upscore_cp(h_cp))
+        h_cp = F.relu(self.bn_cp_3(self.upscore_cp1(h_cp)))
+        cp_score = F.arctan(self.upscore_cp2(h_cp))
 
         h_rot = concat.concat((h_d, pool1_8, cls_pool1_8), axis=1)
         h_rot = F.relu(self.bn_rot_1(self.conv_rot_1(h_rot)))
         h_rot = F.relu(self.bn_rot_2(self.conv_rot_2(h_rot)))
-        rot_score = F.tanh(self.upscore_rot(h_rot))
+        h_rot = F.relu(self.bn_rot_3(self.upscore_rot1(h_rot)))
+        rot_score = F.tanh(self.upscore_rot2(h_rot))
 
         return score, cp_score, rot_score
