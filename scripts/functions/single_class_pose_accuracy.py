@@ -44,8 +44,8 @@ class SingleClassPoseAccuracy(function.Function):
         else:
             if self.use_trim:
                 pred_mask = pred_mask.flatten()
-                pos_list = (y_pos[0] + t_pc[0]).transpose(1,2,0).reshape(y_pos.size/3, 3)[pred_mask]
-                rot_list = y_rot[0].transpose(1,2,0).reshape(y_rot.size/5, 5)[pred_mask]
+                pos_list = (y_pos[0] + t_pc[0]).transpose(1,2,0).reshape(y_pos[0].size/3, 3)[pred_mask]
+                rot_list = y_rot[0].transpose(1,2,0).reshape(y_rot[0].size/5, 5)[pred_mask]
                 prob_list = prob.flatten()[pred_mask]
 
                 # median trim mean
