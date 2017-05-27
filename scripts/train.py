@@ -74,6 +74,8 @@ def main():
                         help='Interval of displaying log to console')
     parser.add_argument('--frequency', '-f', type=int, default=-1,
                         help='Frequency of taking a snapshot')
+    parser.add_argument('--train_resnet', type=bool, default=False,
+                        help='train resnet')
 
     args = parser.parse_args()
 
@@ -90,7 +92,7 @@ def main():
 
     
     model = cp_classifier.CPNetClassifier(CenterProposalNetworkRes50FCN(n_class=n_class,
-                                                                        pretrained_model=True))
+                                                                        pretrained_model= not args.train_resnet))
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
