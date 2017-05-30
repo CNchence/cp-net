@@ -20,7 +20,7 @@ class TestConvlotionalROIPooling(unittest.TestCase):
     def setUp(self):
         batchsize = 2
         self.x = numpy.random.randn(batchsize, 2, 12, 12).astype(numpy.float32)
-        self.ksizes = numpy.random.randint(1, 6, (batchsize, 12, 12)).astype(numpy.int32) 
+        self.ksizes = numpy.random.randint(1, 6, (batchsize, 12, 12)).astype(numpy.float32)
         self.out_ksize = 3
         self.gy = numpy.random.uniform(-1, 1, (batchsize, 2, self.out_ksize * 12,
                                                self.out_ksize * 12)).astype(numpy.float32)
@@ -39,11 +39,11 @@ class TestConvlotionalROIPooling(unittest.TestCase):
         print 'test_forward_cpu'
         self.check_forward(self.x, self.ksizes)
 
-    # @attr.gpu
-    # @condition.retry(1)
-    # def test_forward_gpu_no_cudnn(self):
-    #     print 'test_forward_gpu'
-    #     self.check_forward(cuda.to_gpu(self.x), cuda.to_gpu(self.ksizes))
+    @attr.gpu
+    @condition.retry(3)
+    def test_forward_gpu(self):
+        print 'test_forward_gpu'
+        self.check_forward(cuda.to_gpu(self.x), cuda.to_gpu(self.ksizes))
 
     def check_backward(self, x_data, ksizes_data, y_grad):
         x = chainer.Variable(x_data)
@@ -59,16 +59,16 @@ class TestConvlotionalROIPooling(unittest.TestCase):
         print "[gradient_check] assert_allclose"
         gradient_check.assert_allclose(cuda.to_cpu(gx), cuda.to_cpu(x.grad))
 
-    @condition.retry(3)
-    def test_backward_cpu(self):
-        print 'test_backward_cpu'
-        self.check_backward(self.x, self.ksizes, self.gy)
+    # @condition.retry(3)
+    # def test_backward_cpu(self):
+    #     print 'test_backward_cpu'
+    #     self.check_backward(self.x, self.ksizes, self.gy)
 
-    # @attr.gpu
-    # @condition.retry(1)
-    # def test_backward_gpu_no_cudnn(self):
-    #     print 'test_backward_gpu'
-    #     self.check_backward(cuda.to_gpu(self.x), cuda.to_gpu(self.ksizes),
-    #                         cuda.to_gpu(self.gy))
+    @attr.gpu
+    @condition.retry(3)
+    def test_backward_gpu(self):
+        print 'test_backward_gpu'
+        self.check_backward(cuda.to_gpu(self.x), cuda.to_gpu(self.ksizes),
+                            cuda.to_gpu(self.gy))
 
 testing.run_module(__name__, __file__)
