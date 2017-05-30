@@ -21,7 +21,6 @@ class ConvolutionROIPooling(function.Function):
         self.out_ksize = out_ksize
         self.stride = stride
 
-
     def check_type_forward(self, in_types):
         type_check.expect(in_types.size() == 2)
 
@@ -29,58 +28,69 @@ class ConvolutionROIPooling(function.Function):
         type_check.expect(
             x_type.dtype == numpy.float32,
             x_type.ndim == 4,
-            ksizes_type.dtype == numpy.float32,
+            ksizes_type.dtype == numpy.int32,
             ksizes_type.ndim == 3,
         )
-
 
     def forward_cpu(self, inputs):
         x, ksizes = inputs
         batchsize, channels, i_height, i_width = x.shape
-        ret = numpy.epmpty((batchsize, channels,
-                            self.out_ksize * i_height, self.out_ksize * i_width),
-                           dtype=numpy.float32)
+        ret = numpy.empty((batchsize, channels,
+                           self.out_ksize * i_height, self.out_ksize * i_width),
+                          dtype=numpy.float32)
 
-        o_height = out_ksize * i_height
-        o_width = out_ksize * i_width
-        self.argmax_data = numpy.empty((mini_batch, channels,  o_height, o_width), numpy.int32)
-
+        o_height = self.out_ksize * i_height
+        o_width = self.out_ksize * i_width
+        self.argmax_data = numpy.empty((batchsize, channels,  o_height, o_width), numpy.int32)
+        cnt = 0
         for i_batch in six.moves.range(batchsize):
-            for (i, i_kernel)in enumerate(ksizes[i_batch]):
+            for (i, i_kernel)in enumerate(ksizes[i_batch].flatten()):
                 ksize = max(i_kernel, 1)
-
-                root_x = i % i_width
-                root_y = i // i_width
+                x_root = i % i_width
+                y_root = i // i_width
 
                 xmin = max(x_root - ksize / 2, 0)
-                xmax = min(x_root + ksize / 2, i_width)
                 ymin = max(y_root - ksize / 2, 0)
-                ymax = min(y_root + ksize / 2, i_height)
+                xmax = min(x_root + ksize / 2, i_width - 1)
+                ymax = min(y_root + ksize / 2, i_height - 1)
 
-                strideh = 1. * ksize / out_ksize
-                stridew = 1. * ksize / out_ksize
+                strideh = 1. * (ymax - ymin + 1) / self.out_ksize
+                stridew = 1. * (xmax - xmin + 1) / self.out_ksize
 
-                for out_h in six.moves.range(out_ksize):
-                    sliceh, lenh = _roi_pooling_slice(out_h, strideh, height, ymin)
-                    if slicew.stop <= slicew.start:
+                for out_h in six.moves.range(y_root * self.out_ksize,
+                                             (y_root + 1) * self.out_ksize):
+                    y_mod = out_h % self.out_ksize;
+                    sliceh, lenh = _roi_pooling_slice(y_mod, strideh, i_height, ymin)
+                    if sliceh.stop <= sliceh.start:
                         continue
-                    for out_w in six.move.range(out_ksize):
-                        slicew, lenw = _roi_pooling_slice(out_w, stridew, width, xmin)
+                    for out_w in six.moves.range(x_root * self.out_ksize,
+                                                 (x_root + 1) * self.out_ksize):
+                        x_mod = out_w % self.out_ksize;
+                        slicew, lenw = _roi_pooling_slice(x_mod, stridew, i_width, xmin)
                         if slicew.stop <= slicew.start:
+                            # print "error w"
+                            # print out_h
+                            # print out_w
+                            # print stridew
+                            # print "xmin : " + str(xmin)
+                            # print "xmax : " + str(xmax)
+                            # print  int(numpy.floor(x_mod * stridew))
+                            # print  int(numpy.ceil((x_mod + 1) * stridew))
+                            # print slicew.start
+                            # print slicew.stop
                             continue
-                        slice_ox = slice(x_root * self.out_ksize, y_root * (self.out_ksize + 1))
-                        slice_oy = slice(y_root * self.out_ksize, y_root * (self.out_ksize + 1))
-                        roi_data = img[i_batch, :, sliceh, slicew].reshape(channels, -1)
-                        ret[i_batch,:,out_h, out_w] = numpy.max(roi_data, axis=1)
-
+                        roi_data = x[i_batch, :, sliceh, slicew].reshape(channels, -1)
+                        ret[i_batch, :, out_h, out_w] = numpy.max(roi_data, axis=1)
                         # get the max idx respect to feature_maps coordinates
                         max_idx_slice = numpy.unravel_index(
                             numpy.argmax(roi_data, axis=1), (lenh, lenw))
                         max_idx_slice_h = max_idx_slice[0] + sliceh.start
                         max_idx_slice_w = max_idx_slice[1] + slicew.start
                         max_idx_slice = max_idx_slice_h * i_width + max_idx_slice_w
-                        self.argmax_data[i_batch, out_h, out_w]= max_idx_slice
-        return ret
+                        self.argmax_data[i_batch, :, out_h, out_w] = max_idx_slice
+                        cnt +=1
+        # print cnt
+        return ret,
 
 
     def forward_gpu(self, inputs):
@@ -111,13 +121,20 @@ class ConvolutionROIPooling(function.Function):
             ksize = ksizes[idx_batch * in_h * in_w + y_root * in_w + x_root];
             ksize = max(ksize, 1);
 
-            float bin_size_h = static_cast<float>(ksize) / static_cast<float>(out_ksize);
-            float bin_size_w = static_cast<float>(ksize) / static_cast<float>(out_ksize);
+            ymin = min(max(y_root - ksize / 2, 0), in_h - 1);
+            ymax = min(max(y_root + ksize / 2, 0), in_h - 1);
+            xmin = min(max(x_root - ksize / 2, 0), in_w - 1);
+            xmax = min(max(x_root + ksize / 2, 0), in_w - 1);
 
-            int hstart = static_cast<int>(floor(y_root - ksize / 2 + y_root_mod * bin_size_h));
-            int wstart = static_cast<int>(floor(x_root - ksize / 2 + x_root_mod * bin_size_w));
-            int hend = static_cast<int>(ceil(y_root - ksize / 2 + (y_root_mod + 1) * bin_size_h));
-            int wend = static_cast<int>(ceil(x_root - ksize / 2 + (x_root_mod + 1) * bin_size_w));
+            float bin_size_h = static_cast<float>(ymax - ymin + 1)
+                                   / static_cast<float>(out_ksize);
+            float bin_size_w = static_cast<float>(xmax - xmin + 1)
+                                   / static_cast<float>(out_ksize);
+
+            int hstart = static_cast<int>(floor(ymin + y_root_mod * bin_size_h));
+            int wstart = static_cast<int>(floor(xmin + x_root_mod * bin_size_w));
+            int hend = static_cast<int>(ceil(ymin + (y_root_mod + 1) * bin_size_h));
+            int wend = static_cast<int>(ceil(ymin + (x_root_mod + 1) * bin_size_w));
 
             // Add roi offsets and clip to input boundaries
             hstart = min(max(hstart, 0), in_h);
@@ -149,41 +166,55 @@ class ConvolutionROIPooling(function.Function):
 
     def backward_cpu(self, inputs, gy):
         x, ksizes = inputs
-        batchsize, channels, i_height, in_width = x.shape
+        batchsize, channels, i_height, i_width = x.shape
         o_height = self.out_ksize * i_height
         o_width = self.out_ksize * i_width
-
+        ret_delta = numpy.zeros_like(x, dtype=numpy.float32)
         for i_batch in six.moves.range(batchsize):
-            for (i, i_kernel)in enumerate(ksizes[i_batch]):
+            cnt = 0
+            # duplicated simple implimentation
+            # for o_h in six.moves.range(o_height):
+            #     for o_w in six.moves.range(o_width):
+            #         for c in six.moves.range(channels):
+            #             max_idx = self.argmax_data[i_batch, c, o_h, o_w]
+            #             h = max_idx // i_width
+            #             w = max_idx % i_width
+            #             ret_delta[i_batch, c, h, w] += gy[0][i_batch, c, o_h, o_w]
+            #             cnt +=1
+            print "gy size : " + str(gy[0][0].size)
+
+            for (i, i_kernel)in enumerate(ksizes[i_batch].flatten()):
                 ksize = max(i_kernel, 1)
 
                 xmin = max(i % i_width - ksize / 2, 0)
-                xmax = min(i % i_width + ksize / 2, i_width)
+                xmax = min(i % i_width + ksize / 2, i_width - 1)
                 ymin = max(i // i_width - ksize / 2, 0)
-                ymax = min(i // i_width + ksize / 2, i_height)
+                ymax = min(i // i_width + ksize / 2, i_height - 1)
 
-                strideh = 1. * ksize / out_ksize
-                stridew = 1. * ksize / out_ksize
+                # strideh = 1. * (ymax - ymin + 1) / self.out_ksize
+                # stridew = 1. * (xmax - xmin + 1) / self.out_ksize
+
+                phstart = i // i_width * self.out_ksize
+                phend = (i // i_width + 1) * self.out_ksize
+                pwstart = i % i_width * self.out_ksize
+                pwend = (i % i_width + 1) * self.out_ksize
+
+                phstart = min(max(phstart, 0), o_height)
+                phend = min(max(phend, 0), o_height)
+                pwstart = min(max(pwstart, 0), o_width)
+                pwend = min(max(pwend, 0), o_width)
 
                 # iterate all the w, h (from feature map) that fall into this ROIs
                 for w in six.moves.range(xmin, xmax + 1):
                     for h in six.moves.range(ymin, ymax + 1):
-                        phstart = int(numpy.floor(float(h - ymin) / strideh))
-                        phend = int(numpy.ceil(float(h - ymin + 1) / strideh))
-                        pwstart = int(numpy.floor(float(w - xmin) / stridew))
-                        pwend = int(numpy.ceil(float(w - xmin + 1) / stridew))
-
-                        phstart = min(max(phstart, 0), o_height)
-                        phend = min(max(phend, 0), o_height)
-                        pwstart = min(max(pwstart, 0), o_width)
-                        pwend = min(max(pwend, 0), o_width)
-
                         for ph in six.moves.range(phstart, phend):
                             for pw in six.moves.range(pwstart, pwend):
                                 max_idx_tmp = self.argmax_data[i_batch, :, ph, pw]
                                 for c in six.moves.range(channels):
-                                    if max_idx_tmp[c] == (h * width + w):
+                                    if max_idx_tmp[c] == (h * i_width + w):
                                         ret_delta[i_batch, c, h, w] +=  gy[0][i_batch, c, ph, pw]
+                                        cnt +=1
+            # print cnt
         return ret_delta, None
 
 
@@ -209,10 +240,10 @@ class ConvolutionROIPooling(function.Function):
             for (int idx_img; idx_img < in_h * in_w ; ++idx_img){
                 k_size = ksizes[idx_batch * in_h * in_w + idx_img];
                 k_size = max(ksize, 1);
-                int roi_start_w = round(idx_img % in_w - ksize / 2);
-                int roi_start_h = round(idx_img / in_w - ksize / 2);
-                int roi_end_w = round(idx_img % in_w + ksize / 2);
-                int roi_end_h = round(idx_img / in_w + ksize/ 2)
+                int roi_start_w = max(min(round(idx_img % in_w - ksize / 2), in_w -1), 0);
+                int roi_start_h = max(min(round(idx_img / in_w - ksize / 2), in_h - 1), 0);
+                int roi_end_w = max(min(round(idx_img % in_w + ksize / 2), in_w - 1), 0);
+                int roi_end_h = max(min(round(idx_img / in_w + ksize/ 2), in_h - 1, 0);
 
                 // Skip if ROI doesn't include (h, w)
                 const bool in_roi = (w >= roi_start_w && w <= roi_end_w &&
@@ -223,22 +254,27 @@ class ConvolutionROIPooling(function.Function):
 
                 int data_offset = (idx_batch * channels + idx_channels) * out_h * out_w;
 
-                float bin_size_h = static_cast<float>(ksize) / static_cast<float>(out_ksize);
-                float bin_size_w = static_cast<float>(ksize) / static_cast<float>(out_ksize);
+                // float bin_size_h = static_cast<float>(ksize) / static_cast<float>(out_ksize);
+                // float bin_size_w = static_cast<float>(ksize) / static_cast<float>(out_ksize);
 
-                int phstart = floor(static_cast<float>(h - roi_start_h)
-                                    / bin_size_h);
-                int phend = ceil(static_cast<float>(h - roi_start_h + 1)
-                                 / bin_size_h);
-                int pwstart = floor(static_cast<float>(w - roi_start_w)
-                                    / bin_size_w);
-                int pwend = ceil(static_cast<float>(w - roi_start_w + 1)
-                                 / bin_size_w);
+                // int phstart = floor(static_cast<float>(h - roi_start_h)
+                //                    / bin_size_h);
+                // int phend = ceil(static_cast<float>(h - roi_start_h + 1)
+                //                  / bin_size_h);
+                // int pwstart = floor(static_cast<float>(w - roi_start_w)
+                //                     / bin_size_w);
+                // int pwend = ceil(static_cast<float>(w - roi_start_w + 1)
+                //                  / bin_size_w);
 
-                phstart = min(max(phstart, 0), pooled_height);
-                phend = min(max(phend, 0), pooled_height);
-                pwstart = min(max(pwstart, 0), pooled_width);
-                pwend = min(max(pwend, 0), pooled_width);
+                int phstart = (img_idx / in_w) * out_ksize
+                int phend = (img_idx / in_w + 1) * out_ksize
+                int pwstart = (img_idx % in_w) * out_ksize
+                int pwend = (img_idx % in_w + 1) * out_ksize
+
+                phstart = min(max(phstart, 0), out_h);
+                phend = min(max(phend, 0), out_h);
+                pwstart = min(max(pwstart, 0), out_w);
+                pwend = min(max(pwend, 0), out_h);
 
                 for (int ph = phstart; ph < phend; ++ph) {
                     for (int pw = pwstart; pw < pwend; ++pw) {
@@ -257,7 +293,7 @@ class ConvolutionROIPooling(function.Function):
         return ret_diff, None
 
 
-def convolutinoal_roi_pooling(x, in_ksize, out_ksize=3):
+def convolutional_roi_pooling(x, ksizes, out_ksize=3):
     """
     - input: feature_map (size : batchsize * K * H * W)
     - input: pixelwise kernel size  (size : batchsize * H * W)
@@ -268,4 +304,4 @@ def convolutinoal_roi_pooling(x, in_ksize, out_ksize=3):
     Returns:
         ~chainer.Variable: Output variable.
     """
-    return ConvolutionROIPooling(out_ksize=out_ksize)(x, in_ksize, ksize)
+    return ConvolutionROIPooling(out_ksize=out_ksize)(x, ksizes)
