@@ -125,16 +125,29 @@ class PreprocessedDataset(dataset.DatasetMixin):
         img_rgb = cv2.resize(img_rgb, img_size)
         img_rgb = img_rgb.transpose(2,0,1).astype(np.float32)
 
-        img_depth = np.square(img_depth).sum(axis=2)
+        # simple inpaint depth (using opencv function only considering depth, not using rgb)
+        img_depth = np.sqrt(np.square(img_depth).sum(axis=2))
+        img_depth_nan_mask = (img_depth != img_depth)
+        depth_max = img_depth[img_depth==img_depth].max()
+        depth_min = img_depth[img_depth==img_depth].min()
+        coeff = 255 /(depth_max - depth_min)
+
+        img_depth_shift = (img_depth - depth_min) * coeff
+        img_depth_shift[img_depth_shift != img_depth_shift] = 0
+        img_depth_shift[img_depth_shift > 255] = 255
+        img_depth_shift[img_depth_shift < 0] = 0
+
+        img_fill = cv2.inpaint(np.round(img_depth_shift).astype(np.uint8), img_depth_nan_mask.astype(np.uint8), 3, cv2.INPAINT_TELEA)
+        img_fill = img_fill.astype(np.float32) / coeff + depth_min
+
         img_depth[img_depth != img_depth] = 0
-        img_depth = np.sqrt(img_depth)
+        img_depth = img_fill * img_depth_nan_mask + img_depth * (1 - img_depth_nan_mask)
 
-        # only consider range 0.5 ~ 4.5[m]
-        img_depth = (img_depth - 0.5) / 4.0
-        img_depth[img_depth > 1] = 1
-        img_depth[img_depth < 0] = 0
+        # only consider range 0.5 ~ 2.5[m]
+        img_depth = (img_depth - 0.5) / 2.0
+        img_depth[img_depth > 1.0] = 1.0
+        img_depth[img_depth < 0.0] = 0.0
 
-        img_depth = img_depth / 255.0  # Scale to [0, 1];
         img_depth =  cv2.resize(img_depth, img_size)
         img_depth = img_depth.reshape(1, img_size[1], img_size[0]).astype(np.float32)
 
