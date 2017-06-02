@@ -2,5 +2,5 @@
 *.pyc
 .DS_Store
 .\~
-models/
+download_data/
 train_data/
