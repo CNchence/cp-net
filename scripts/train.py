@@ -19,9 +19,9 @@ import chainer.links.model.vision.resnet as R
 from chainer.training import extensions
 from chainer.links.caffe import CaffeFunction
 
-from cp_network import CenterProposalNetworkRes50FCN
-import cp_classifier
-from preprocessed_dataset import PreprocessedDataset
+from cp_net.models.cp_network import CenterProposalNetworkRes50FCN
+from cp_net.cp_classifier import CPNetClassifier
+from cp_net.preprocessed_dataset import PreprocessedDataset
 
 import argparse
 import os
@@ -91,8 +91,8 @@ def main():
     caffe_model = 'ResNet-50-model.caffemodel'
 
     
-    model = cp_classifier.CPNetClassifier(CenterProposalNetworkRes50FCN(n_class=n_class,
-                                                                        pretrained_model= not args.train_resnet))
+    model = CPNetClassifier(CenterProposalNetworkRes50FCN(n_class=n_class,
+                                                          pretrained_model= not args.train_resnet))
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
