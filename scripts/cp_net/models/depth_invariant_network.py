@@ -24,13 +24,10 @@ class CenterProposalNetworkRes50FCN(chainer.Chain):
             # resnet50
             conv1=L.Convolution2D(3, 64, 7, 2, 3, **kwargs),
             bn1=L.BatchNormalization(64),
-            res2=R.BuildingBlock(3, 64, 64, 256, 1, **kwargs),
-            res3=R.BuildingBlock(4, 256, 128, 512, 2, **kwargs),
-            res4=R.BuildingBlock(6, 512, 256, 1024, 2, **kwargs),
-            res5=R.BuildingBlock(3, 1024, 512, 2048, 2, **kwargs),
+            res2=R.BuildingBlock(3, 64, 64, 256, 1, **kwargs), # resblock 1/2 -> 1/4
+            res3=R.BuildingBlock(4, 256, 128, 512, 2, **kwargs), # resblock 1/4 ->1/8
+            res4=R.BuildingBlock(6, 512, 256, 1024, 2, **kwargs), # resblock 1/8 -> 1/16
 
-            upscore32=L.Deconvolution2D(2048, 512, 8,
-                                        stride=4, pad=2,  use_cudnn=False),
             upscore16=L.Deconvolution2D(1024, 512, 4,
                                         stride=2, pad=1, use_cudnn=False),
 
