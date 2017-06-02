@@ -117,7 +117,7 @@ class PreprocessedDataset(dataset.DatasetMixin):
             pc = pc[(120+rand_h):(120+192+rand_h), (140+rand_w):(140+256+rand_w)]
         else:
             img_rgb = img_rgb[140:332,160:416]
-            img_depth = img_depth[140:332,160:416]
+            img_depth = pc[140:332,160:416]
             mask = mask[140:332,160:416]
             pc =  pc[140:332,160:416]
 
