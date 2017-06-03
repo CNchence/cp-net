@@ -49,25 +49,27 @@ class ConvolutionROIPooling(function.Function):
                 x_root = i % i_width
                 y_root = i // i_width
 
-                xmin = max(x_root - ksize / 2, 0)
-                ymin = max(y_root - ksize / 2, 0)
-                xmax = min(x_root + ksize / 2, i_width - 1)
-                ymax = min(y_root + ksize / 2, i_height - 1)
+                xmin = x_root - ksize / 2
+                ymin = y_root - ksize / 2
 
-                strideh = 1. * (ymax - ymin + 1) / self.out_ksize
-                stridew = 1. * (xmax - xmin + 1) / self.out_ksize
+                strideh = 1. * (ksize // 2 * 2 + 1) / self.out_ksize
+                stridew = 1. * (ksize // 2 * 2 + 1) / self.out_ksize
 
                 for out_h in six.moves.range(y_root * self.out_ksize,
                                              (y_root + 1) * self.out_ksize):
                     y_mod = out_h % self.out_ksize;
                     sliceh, lenh = _roi_pooling_slice(y_mod, strideh, i_height, ymin)
                     if sliceh.stop <= sliceh.start:
+                        ret[i_batch, :, out_h, :] = 0
+                        self.argmax_data[i_batch, :, out_h, :] = -1
                         continue
                     for out_w in six.moves.range(x_root * self.out_ksize,
                                                  (x_root + 1) * self.out_ksize):
                         x_mod = out_w % self.out_ksize;
                         slicew, lenw = _roi_pooling_slice(x_mod, stridew, i_width, xmin)
                         if slicew.stop <= slicew.start:
+                            ret[i_batch, :, out_h, out_w] = 0
+                            self.argmax_data[i_batch, :, out_h, out_w] = -1
                             # print "error w"
                             # print out_h
                             # print out_w
@@ -122,14 +124,13 @@ class ConvolutionROIPooling(function.Function):
             int ksize = ksizes[idx_batch * in_h * in_w + y_root * in_w + x_root];
             ksize = max(ksize, 1);
 
-            int ymin = min(max(y_root - ksize / 2, 0), in_h - 1);
-            int ymax = min(max(y_root + ksize / 2, 0), in_h - 1);
-            int xmin = min(max(x_root - ksize / 2, 0), in_w - 1);
-            int xmax = min(max(x_root + ksize / 2, 0), in_w - 1);
+            int ymin = y_root - ksize / 2;
+            int xmin = x_root - ksize / 2;
 
-            float bin_size_h = static_cast<float>(ymax - ymin + 1)
+            int ksize_half = ksize / 2;
+            float bin_size_h = static_cast<float>((ksize_half * 2 + 1)
                                    / static_cast<float>(out_ksize);
-            float bin_size_w = static_cast<float>(xmax - xmin + 1)
+            float bin_size_w = static_cast<float>(ksize_half * 2 + 1)
                                    / static_cast<float>(out_ksize);
 
             int hstart = static_cast<int>(floor(y_root_mod * bin_size_h)) + ymin;
@@ -147,7 +148,6 @@ class ConvolutionROIPooling(function.Function):
 
             // Define an empty pooling region to be zero
             float maxval = is_empty ? 0 : -1E+37;
-
             // If nothing is pooled, argmax=-1 causes nothing to be backprop'd
             int maxidx = -1;
             int data_offset = (idx_batch * channels + idx_channels) * in_h * in_w;
@@ -183,10 +183,13 @@ class ConvolutionROIPooling(function.Function):
                 for o_w in six.moves.range(o_width):
                     for c in six.moves.range(channels):
                         max_idx = self.argmax_data[i_batch, c, o_h, o_w]
-                        h = max_idx // i_width
-                        w = max_idx % i_width
-                        ret_delta[i_batch, c, h, w] += gy[0][i_batch, c, o_h, o_w]
-                        # cnt +=1
+                        if max_idx >= 0:
+                            h = max_idx // i_width
+                            w = max_idx % i_width
+                            ret_delta[i_batch, c, h, w] += gy[0][i_batch, c, o_h, o_w]
+                            # cnt +=1
+                        else:
+                            continue
 
             # print "gy size : " + str(gy[0][0].size)
 
