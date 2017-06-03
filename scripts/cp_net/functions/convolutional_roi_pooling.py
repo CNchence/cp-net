@@ -128,7 +128,7 @@ class ConvolutionROIPooling(function.Function):
             int xmin = x_root - ksize / 2;
 
             int ksize_half = ksize / 2;
-            float bin_size_h = static_cast<float>((ksize_half * 2 + 1)
+            float bin_size_h = static_cast<float>(ksize_half * 2 + 1)
                                    / static_cast<float>(out_ksize);
             float bin_size_w = static_cast<float>(ksize_half * 2 + 1)
                                    / static_cast<float>(out_ksize);
