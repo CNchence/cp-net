@@ -29,7 +29,7 @@ class ConvolutionROIPooling(function.Function):
             x_type.dtype == numpy.float32,
             x_type.ndim == 4,
             ksizes_type.dtype == numpy.float32,
-            ksizes_type.ndim == 3,
+            # ksizes_type.ndim == 4,
         )
 
     def forward_cpu(self, inputs):
