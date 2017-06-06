@@ -9,7 +9,8 @@ import os
 
 import cp_net.utils.preprocess_utils as preprocess_utils
 
-class PreprocessedDataset(dataset.DatasetMixin):
+
+class DepthInvariantNetDataset(dataset.DatasetMixin):
 
     def __init__(self, path, class_indices, view_indices, img_size=(256, 192), random=True):
         self.base = path
@@ -30,19 +31,14 @@ class PreprocessedDataset(dataset.DatasetMixin):
         c_path = os.path.join(self.base, c_idx_format)
         rgb = cv2.imread(os.path.join(c_path, 'rgb_' + v_idx_format +'.png'))
         mask = cv2.imread(os.path.join(c_path, 'mask_' + v_idx_format +'.png'))
-        pos = np.load(os.path.join(c_path, 'pos_' + v_idx_format +'.npy'))
-        rot = np.load(os.path.join(c_path, 'rot_' + v_idx_format +'.npy'))
-        # rot = rot.flatten()
-        # quat = calc_quaternion(rot)
-        # rpy = rpy_param(rot)
         pc = np.load(os.path.join(c_path, 'pc_' + v_idx_format +'.npy'))
-        return rgb, mask, pos, rot, pc
+        return rgb, mask, pc
 
     def get_example(self, i):
         img_size = self.img_size
         c_i = self.class_indices[i // self.n_view]
         v_i = self.view_indices[i % self.n_view]
-        img_rgb, mask, pos, rot, pc = self.load_orig_data(c_i, v_i)
+        img_rgb, mask, pc = self.load_orig_data(c_i, v_i)
 
         # image, label = self.base[i]
         # _, h, w = image.shape
@@ -96,6 +92,9 @@ class PreprocessedDataset(dataset.DatasetMixin):
         img_depth = np.sqrt(np.square(img_depth).sum(axis=2))
         img_depth = preprocess_utils.depth_inpainting(img_depth)
 
+        ksizes = preprocess_utils.roi_kernel_size(img_depth).reshape(1,img_depth.shape[0],
+                                                                     img_depth.shape[1])
+
         # only consider range 0.5 ~ 2.5[m]
         img_depth = (img_depth - 0.5) / 2.0
         img_depth[img_depth > 1.0] = 1.0
@@ -108,14 +107,4 @@ class PreprocessedDataset(dataset.DatasetMixin):
         mask = cv2.resize(mask, img_size)
         label = mask * c_i
 
-        pc = cv2.resize(pc, img_size).transpose(2,0,1)
-        rot_param = preprocess_utils.rpy_param(rot)
-
-        mask5 = np.tile(mask.flatten(), 5).reshape(5, mask.shape[0], mask.shape[1])
-        rot_map = mask5 * rot_param[:,np.newaxis, np.newaxis]
-
-        dist_map = pc
-        dist_map = pos[:,np.newaxis,np.newaxis] - dist_map
-        dist_map[dist_map!=dist_map] = 0
-
-        return img_rgb, img_depth, label.astype(np.int32), dist_map.astype(np.float32), pos, rot_param, rot_map.astype(np.float32), pc.astype(np.float32)
+        return img_rgb, ksizes.astype(np.float32), label.astype(np.int32)
