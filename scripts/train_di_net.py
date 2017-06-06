@@ -19,9 +19,8 @@ import chainer.links.model.vision.resnet as R
 from chainer.training import extensions
 from chainer.links.caffe import CaffeFunction
 
-from cp_net.models.cp_network import CenterProposalNetworkRes50FCN
-from cp_net.cp_classifier import CPNetClassifier
-from cp_net.preprocessed_dataset import PreprocessedDataset
+from cp_net.models.depth_invariant_network import DepthInvariantNetworkRes50FCN
+from cp_net.di_net_dataset import DepthInvariantNetDataset
 
 import argparse
 import os
@@ -45,7 +44,7 @@ def _make_chainermodel_npz(path_npz, path_caffemodel, model, num_class):
     if not os.path.exists(path_caffemodel):
         raise IOError('The pre-trained caffemodel does not exist.')
     caffemodel = CaffeFunction(path_caffemodel)
-    chainermodel = CenterProposalNetworkRes50FCN(n_class=num_class)
+    chainermodel = DepthInvariantNetworkRes50FCN(n_class=num_class)
     _transfer_pretrain_resnet50(caffemodel, chainermodel)
     classifier_model = L.Classifier(chainermodel)
     serializers.save_npz(path_npz, classifier_model, compression=False)
@@ -62,7 +61,7 @@ def main():
                         help='Number of sweeps over the dataset to train')
     parser.add_argument('--gpu', '-g', type=int, default=-1,
                         help='GPU ID (negative value indicates CPU)')
-    parser.add_argument('--out', '-o', default='result',
+    parser.add_argument('--out', '-o', default='di_net_result',
                         help='Directory to output the result')
     parser.add_argument('--resume', '-r', default='',
                         help='Resume the training from snapshot')
@@ -103,10 +102,10 @@ def main():
     optimizer.setup(model)
 
     # load train data
-    train = PreprocessedDataset(train_path, range(1,n_class), range(0, n_view - 2))
+    train = DepthInvariantNetDataset(train_path, range(1,n_class), range(0, n_view - 2))
     # load test data
-    test = PreprocessedDataset(train_path, range(1,n_class), range(n_view - 2, n_view),
-                               img_size=(256, 192), random=False)
+    test = DepthInvariantNetDataset(train_path, range(1,n_class), range(n_view - 2, n_view),
+                                    img_size=(256, 192), random=False)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
