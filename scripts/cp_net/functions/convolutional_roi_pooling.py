@@ -176,53 +176,57 @@ class ConvolutionROIPooling(function.Function):
         o_height = self.out_ksize * i_height
         o_width = self.out_ksize * i_width
         ret_delta = numpy.zeros_like(x, dtype=numpy.float32)
-        for i_batch in six.moves.range(batchsize):
-            # cnt = 0
-            # duplicated simple implimentation
-            for o_h in six.moves.range(o_height):
-                for o_w in six.moves.range(o_width):
-                    for c in six.moves.range(channels):
-                        max_idx = self.argmax_data[i_batch, c, o_h, o_w]
-                        if max_idx >= 0:
-                            h = max_idx // i_width
-                            w = max_idx % i_width
-                            ret_delta[i_batch, c, h, w] += gy[0][i_batch, c, o_h, o_w]
-                            # cnt +=1
-                        else:
-                            continue
 
-            # print "gy size : " + str(gy[0][0].size)
+        for h in six.moves.range(i_height):
+            for w in six.moves.range(i_width):
+                mask = (self.argmax_data == h * i_width + w)
+                ret_delta[:, :, h, w] = numpy.sum((mask * gy[0]), axis=-1).sum(axis=-1)
 
-            # for (i, i_kernel)in enumerate(ksizes[i_batch].ravel()):
-            #     ksize = int(max(i_kernel, 1))
+        # cnt = 0
 
-            #     xmin = max(i % i_width - ksize / 2, 0)
-            #     xmax = min(i % i_width + ksize / 2, i_width - 1)
-            #     ymin = max(i // i_width - ksize / 2, 0)
-            #     ymax = min(i // i_width + ksize / 2, i_height - 1)
+        # # duplicated simple implimentation
+        # for i_batch in six.moves.range(batchsize):
+        #     for o_h in six.moves.range(o_height):
+        #         for o_w in six.moves.range(o_width):
+        #             for c in six.moves.range(channels):
+        #                 max_idx = self.argmax_data[i_batch, c, o_h, o_w]
+        #                 if max_idx >= 0:
+        #                     h = max_idx // i_width
+        #                     w = max_idx % i_width
+        #                     ret_delta[i_batch, c, h, w] += gy[0][i_batch, c, o_h, o_w]
+        #                 cnt +=1
 
-            #     # strideh = 1. * (ymax - ymin + 1) / self.out_ksize
-            #     # stridew = 1. * (xmax - xmin + 1) / self.out_ksize
 
-            #     phstart = i // i_width * self.out_ksize
-            #     phend = (i // i_width + 1) * self.out_ksize
-            #     pwstart = i % i_width * self.out_ksize
-            #     pwend = (i % i_width + 1) * self.out_ksize
 
-            #     phstart = min(max(phstart, 0), o_height)
-            #     phend = min(max(phend, 0), o_height)
-            #     pwstart = min(max(pwstart, 0), o_width)
-            #     pwend = min(max(pwend, 0), o_width)
+        # print "gy size : " + str(gy[0][0].size)
+        # for i_batch in six.moves.range(batchsize):
+        #     for (i, i_kernel)in enumerate(ksizes[i_batch].ravel()):
+        #         ksize = int(max(i_kernel, 1))
 
-            #     # iterate all the w, h (from feature map) that fall into this ROIs
-            #     for w in six.moves.range(xmin, xmax + 1):
-            #         for h in six.moves.range(ymin, ymax + 1):
-            #             for ph in six.moves.range(phstart, phend):
-            #                 for pw in six.moves.range(pwstart, pwend):
-            #                     max_idx_tmp = self.argmax_data[i_batch, :, ph, pw]
-            #                     for c in six.moves.range(channels):
-            #                         if max_idx_tmp[c] == (h * i_width + w):
-            #                             ret_delta[i_batch, c, h, w] +=  gy[0][i_batch, c, ph, pw]
+        #         xmin = max(i % i_width - ksize / 2, 0)
+        #         xmax = min(i % i_width + ksize / 2, i_width - 1)
+        #         ymin = max(i // i_width - ksize / 2, 0)
+        #         ymax = min(i // i_width + ksize / 2, i_height - 1)
+
+        #         phstart = i // i_width * self.out_ksize
+        #         phend = (i // i_width + 1) * self.out_ksize
+        #         pwstart = i % i_width * self.out_ksize
+        #         pwend = (i % i_width + 1) * self.out_ksize
+
+        #         phstart = min(max(phstart, 0), o_height)
+        #         phend = min(max(phend, 0), o_height)
+        #         pwstart = min(max(pwstart, 0), o_width)
+        #         pwend = min(max(pwend, 0), o_width)
+
+        #         # iterate all the w, h (from feature map) that fall into this ROIs
+        #         for w in six.moves.range(xmin, xmax + 1):
+        #             for h in six.moves.range(ymin, ymax + 1):
+        #                 for ph in six.moves.range(phstart, phend):
+        #                     for pw in six.moves.range(pwstart, pwend):
+        #                         max_idx_tmp = self.argmax_data[i_batch, :, ph, pw]
+        #                         for c in six.moves.range(channels):
+        #                             if max_idx_tmp[c] == (h * i_width + w):
+        #                                 ret_delta[i_batch, c, h, w] +=  gy[0][i_batch, c, ph, pw]
             #                             cnt +=1
             # print cnt
         return ret_delta, None
