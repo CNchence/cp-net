@@ -20,7 +20,7 @@ class DepthInvariantNetworkRes50FCN(chainer.Chain):
             # employ default initializers used in the original paper
             kwargs = {'initialW': normal.HeNormal(scale=1.0)}
         self.n_class = n_class
-        super(CenterProposalNetworkRes50FCN, self).__init__(
+        super(DepthInvariantNetworkRes50FCN, self).__init__(
             # resnet50
             conv1=L.Convolution2D(3, 64, 7, 2, 3, **kwargs),
             bn1=L.BatchNormalization(64),
@@ -29,14 +29,21 @@ class DepthInvariantNetworkRes50FCN(chainer.Chain):
             res4=R.BuildingBlock(6, 512, 256, 1024, 2, **kwargs), # resblock 1/8 -> 1/16
             res5=R.BuildingBlock(3, 1024, 512, 2048, 2, **kwargs), # resblock 1/16 -> 1/32
 
-            concat_conv = L.Convolution2D(512 + 1024 + 2048,  1024, 3, stride=1, pad=1),
+            upscore1=L.Deconvolution2D(2048, 512, 16, stride=8, pad=4, use_cudnn=False),
+            upscore2=L.Deconvolution2D(1024, 512, 8,stride=4, pad=2, use_cudnn=False),
+            upscore3=L.Deconvolution2D(512, 512, 4, stride=2, pad=1, use_cudnn=False),
+            
+            concat_conv = L.Convolution2D(512*3,  1024, 3, stride=1, pad=1),
 
-            pool_roi_conv =  L.Convolution2D(1024, 512, 5, stride=5, pad=0),
-            conv_after_croip = L.Convolution2D(512, 512, 3, stride=1, pad=1),
+            pool_roi_conv =  L.Convolution2D(1024, 1024, 5, stride=5, pad=0),
+            conv_after_croip = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
 
+            bn_croip1 = L.BatchNormalization(1024),
+            bn_croip2 = L.BatchNormalization(512),
+            
             score_pool = L.Convolution2D(512, n_class, 1, stride=1, pad=0),
-            upscore_final=L.Deconvolution2D(self.n_class, self.n_class, 16,
-                                            stride=8, pad=4, use_cudnn=False),
+            upscore_final=L.Deconvolution2D(self.n_class, self.n_class, 8,
+                                            stride=4, pad=2, use_cudnn=False),
         )
 
     def __call__(self, x1, x2, eps=0.001, test=None):
@@ -54,25 +61,27 @@ class DepthInvariantNetworkRes50FCN(chainer.Chain):
         h = self.res5(h, test=test) # 1/32
         pool1_32 = h
 
-        # upscore 1/32 -> 1/8
-        h = F.unpooling_2d(h, 4)
-        # upscore 1/16 -> 1/8
-        pool1_16 = F.unpooling_2d(pool1_16, 2)
+        # upscore 1/32 -> 1/4
+        pool1_32 = self.upscore1(pool1_32)
+        # upscore 1/16 -> 1/4
+        pool1_16 = self.upscore2(pool1_16)
+        # upscore 1/8 -> 1/4
+        pool1_8 = self.upscore3(pool1_8)
 
-        # concat 1 / 8
-        h = concat.concat((upscore1, upscore2, pool1_8), axis=1)
+        # concat 1 / 4
+        h = concat.concat((pool1_32, pool1_16, pool1_8), axis=1)
         h = F.relu(self.concat_conv(h))
 
-        h = convolutional_roi_pooling(h, F.ceil(ksizes * 3), out_ksize=5)
-        h = self.relu(self.bn_croip1(self.pool_roi_conv(h)))
+        ksizes = F.ceil(F.resize_images((ksizes * 3), (h.data.shape[2], h.data.shape[3])))
+        h = convolutional_roi_pooling(h, ksizes, out_ksize=5)
+        h = F.relu(self.bn_croip1(self.pool_roi_conv(h)))
 
-        h = self.relu(self.bn_croip2(self.conv_after_croip(h)))
+        h = F.relu(self.bn_croip2(self.conv_after_croip(h)))
 
         # score
         h = F.relu(self.score_pool(h))
         score1_8 = h
         h = F.relu(self.upscore_final(h))
         score = h  # 1/1
-        self.score = score  # XXX: for backward compatibility
 
         return score
