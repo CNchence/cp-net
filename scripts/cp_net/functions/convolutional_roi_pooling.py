@@ -35,6 +35,7 @@ class ConvolutionROIPooling(function.Function):
         )
 
     def forward_cpu(self, inputs):
+        t = time.time()
         x, ksizes = inputs
         batchsize, channels, i_height, i_width = x.shape
         o_height = self.out_ksize * i_height
@@ -42,206 +43,89 @@ class ConvolutionROIPooling(function.Function):
         ret = numpy.empty((batchsize, channels, o_height, o_width), dtype=numpy.float32)
         self.argmax_data = numpy.empty((batchsize, channels, o_height, o_width), numpy.int32)
         # cnt = 0
-        t = time.time()
-
-        # for i in six.moves.range(i_height * i_width):
-        #     x_root = i % i_width
-        #     y_root = i // i_width
-
-        #     for i_batch in six.moves.range(batchsize):
-        #         ksize = int(max(ksizes[i_batch, 0, y_root, x_root], 1))
-
-        #         xmin = x_root - ksize / 2
-        #         ymin = y_root - ksize / 2
-
-        #         strideh = 1. * (ksize // 2 * 2 + 1) / self.out_ksize
-        #         stridew = 1. * (ksize // 2 * 2 + 1) / self.out_ksize
-
-
-
-        # for i_batch in six.moves.range(batchsize):
-        #     for (i, i_kernel)in enumerate(ksizes[i_batch].ravel()):
-        #         ksize = int(max(i_kernel, 1))
-        #         x_root = i % i_width
-        #         y_root = i // i_width
-
-        #         xmin = x_root - ksize / 2
-        #         ymin = y_root - ksize / 2
-        #         xmax = x_root + ksize / 2
-        #         ymax = y_root + ksize / 2
-
-        #         strideh = 1. * (ksize // 2 * 2 + 1) / self.out_ksize
-        #         stridew = 1. * (ksize // 2 * 2 + 1) / self.out_ksize
-
-        #         col = conv.im2col_cpu(x[i_batch], (strideh, stridew))
-        #         n, c, kh, kw, out_h, out_w = col.shape
-        #         col = col.reshape(n, c, kh * kw, out_h, out_w)
-        #         indices = col.argmax(axis=2)
-        #         ret[i_batch, :] = col.max(axis=2)
-
-
-        # for i_batch in six.moves.range(batchsize):
-        #     for (i, i_kernel)in enumerate(ksizes[i_batch].ravel()):
-        #         ksize = int(max(i_kernel, 1))
-        #         x_root = i % i_width
-        #         y_root = i // i_width
-        #         xmin = x_root - ksize / 2
-        #         ymin = y_root - ksize / 2
-
-        #         strideh = 1. * (ksize // 2 * 2 + 1) / self.out_ksize
-        #         stridew = 1. * (ksize // 2 * 2 + 1) / self.out_ksize
-
-        #         out_h = numpy.arange(y_root * self.out_ksize, (y_root + 1) * self.out_ksize)
-        #         out_w = numpy.arange(x_root * self.out_ksize, (x_root + 1) * self.out_ksize)
-        #         mg_h, mg_w = numpy.meshgrid(out_h, out_w)
-        #         mg_h = mg_h.ravel()
-        #         mg_w = mg_w.ravel()
-
-        #         for mg_hh, mg_ww in zip(mg_h, mg_w):
-        #             sliceh, lenh = _roi_pooling_slice(mg_hh % self.out_ksize,
-        #                                               strideh, i_height, ymin)
-        #             slicew, lenw = _roi_pooling_slice(mg_ww % self.out_ksize,
-        #                                               stridew, i_width, xmin)
-        #             if (slicew.stop <= slicew.start or sliceh.stop <= sliceh.start):
-        #                 ret[i_batch, :, mg_hh, mg_ww] = 0
-        #                 self.argmax_data[i_batch, :, mg_hh, mg_ww] = -1
-        #                 continue
-        #             roi_data = x[i_batch, :, sliceh, slicew].reshape(channels, -1)
-        #             ret[i_batch, :, mg_hh, mg_ww] = numpy.max(roi_data, axis=1)
-        #             # get the max idx respect to feature_maps coordinates
-        #             max_idx_slice = numpy.unravel_index(
-        #                 numpy.argmax(roi_data, axis=1), (lenh, lenw))
-        #             max_idx_slice_h = max_idx_slice[0] + sliceh.start
-        #             max_idx_slice_w = max_idx_slice[1] + slicew.start
-        #             max_idx_slice = max_idx_slice_h * i_width + max_idx_slice_w
-        #             self.argmax_data[i_batch, :, mg_hh, mg_ww] = max_idx_slice
-
-        # for i_batch in six.moves.range(batchsize):
-        #     for (i, i_kernel)in enumerate(ksizes[i_batch].ravel()):
-        #         ksize = int(max(i_kernel, 1))
-        #         x_root = i % i_width
-        #         y_root = i // i_width
-
-        #         xmin = x_root - ksize / 2
-        #         ymin = y_root - ksize / 2
-
-        #         strideh = 1. * (ksize // 2 * 2 + 1) / self.out_ksize
-        #         stridew = 1. * (ksize // 2 * 2 + 1) / self.out_ksize
-
-        #         for out_h in six.moves.range(y_root * self.out_ksize,
-        #                                      (y_root + 1) * self.out_ksize):
-        #             y_mod = out_h % self.out_ksize
-        #             sliceh, lenh = _roi_pooling_slice(y_mod, strideh, i_height, ymin)
-        #             if sliceh.stop <= sliceh.start:
-        #                 ret[i_batch, :, out_h, :] = 0
-        #                 self.argmax_data[i_batch, :, out_h, :] = -1
-        #                 continue
-        #             for out_w in six.moves.range(x_root * self.out_ksize,
-        #                                          (x_root + 1) * self.out_ksize):
-        #                 x_mod = out_w % self.out_ksize
-        #                 slicew, lenw = _roi_pooling_slice(x_mod, stridew, i_width, xmin)
-        #                 if slicew.stop <= slicew.start:
-        #                     ret[i_batch, :, out_h, out_w] = 0
-        #                     self.argmax_data[i_batch, :, out_h, out_w] = -1
-        #                     # print "error w"
-        #                     # print out_h
-        #                     # print out_w
-        #                     # print stridew
-        #                     # print "xmin : " + str(xmin)
-        #                     # print "xmax : " + str(xmax)
-        #                     # print  int(numpy.floor(x_mod * stridew))
-        #                     # print  int(numpy.ceil((x_mod + 1) * stridew))
-        #                     # print slicew.start
-        #                     # print slicew.stop
-        #                     continue
-        #                 roi_data = x[i_batch, :, sliceh, slicew].reshape(channels, -1)
-        #                 ret[i_batch, :, out_h, out_w] = numpy.max(roi_data, axis=1)
-        #                 # get the max idx respect to feature_maps coordinates
-        #                 max_idx_slice = numpy.unravel_index(
-        #                     numpy.argmax(roi_data, axis=1), (lenh, lenw))
-        #                 max_idx_slice_h = max_idx_slice[0] + sliceh.start
-        #                 max_idx_slice_w = max_idx_slice[1] + slicew.start
-        #                 max_idx_slice = max_idx_slice_h * i_width + max_idx_slice_w
-        #                 self.argmax_data[i_batch, :, out_h, out_w] = max_idx_slice
-                        # cnt +=1
-
-        kmax_half = int(ksizes.max())
+        kmax_half = int(ksizes.max())//2
         x_pad = numpy.pad(x,
                           ((0, 0), (0, 0),
                            (kmax_half,  kmax_half), (kmax_half, kmax_half)),
                           mode='constant', constant_values=(0,))
-        x_mod = numpy.arange(self.out_ksize)
-        y_mod = numpy.arange(self.out_ksize)
+        im_size = i_width * i_height
+        mod = numpy.arange(self.out_ksize)
+        mesh_h, mesh_w = numpy.meshgrid(mod, mod)
 
-        for i in six.moves.range(i_width * i_height):
-            x_root = i % i_width
-            y_root = i // i_width
-            mini_ksizes = numpy.array(ksizes[:, 0, y_root, x_root], dtype=numpy.float32)
+        for i in six.moves.range(im_size):
+            y_root, x_root = numpy.unravel_index(i, (i_height, i_width))
+            mini_ksizes = ksizes[:, 0, y_root, x_root]
 
-            xmin = x_root - mini_ksizes // 2
-            ymin = y_root - mini_ksizes // 2
-            strideh = (mini_ksizes // 2 * 2 + 1) / self.out_ksize
-            stridew = (mini_ksizes // 2 * 2 + 1) / self.out_ksize
+            xmin = x_root - mini_ksizes // 2 + kmax_half
+            ymin = y_root - mini_ksizes // 2 + kmax_half
 
-            hstart = (numpy.floor(y_mod * strideh[:,numpy.newaxis]) \
-                      + ymin[:,numpy.newaxis] + kmax_half).ravel().astype(numpy.int32)
-            wstart = (numpy.floor(x_mod * stridew[:,numpy.newaxis]) \
-                      + xmin[:,numpy.newaxis] + kmax_half).ravel().astype(numpy.int32)
-            hend = (numpy.ceil((y_mod + 1) * strideh[:,numpy.newaxis]) \
-                   + ymin[:,numpy.newaxis] + kmax_half).ravel().astype(numpy.int32)
-            wend = (numpy.ceil((x_mod + 1) * stridew[:,numpy.newaxis]) \
-                   + xmin[:,numpy.newaxis] + kmax_half).ravel().astype(numpy.int32)
+            stride = (mini_ksizes // 2 * 2 + 1) / self.out_ksize
+            hstart = (numpy.floor(mod * stride[:,numpy.newaxis]) + ymin[:,numpy.newaxis]).ravel()
+            wstart = (numpy.floor(mod * stride[:,numpy.newaxis]) + xmin[:,numpy.newaxis]).ravel()
+            hend = (numpy.ceil((mod + 1) * stride[:,numpy.newaxis]) + ymin[:,numpy.newaxis]).ravel()
+            wend = (numpy.ceil((mod + 1) * stride[:,numpy.newaxis]) + xmin[:,numpy.newaxis]).ravel()
 
-            # patch_max = numpy.empty((batchsize, channels, self.out_ksize, self.out_ksize))
-            # patch_argmax = numpy.empty((batchsize, channels, self.out_ksize, self.out_ksize))
+            # stride = (numpy.round((mini_ksizes // 2 * 2 + 1) / self.out_ksize)).astype(numpy.int32)
+            # pad_size = ((self.out_ksize - (mini_ksizes // 2 * 2 + 1) + 1) //2).astype(numpy.int32)
+            # pad_size[pad_size < 0] = 0
+            # in_ksize = numpy.ceil((mini_ksizes // 2 * 2 + 1) / self.out_ksize).astype(numpy.int32)
 
-            for j in six.moves.range(batchsize * self.out_ksize * self.out_ksize):
-                bt, hh, ww = numpy.unravel_index(j, (batchsize, self.out_ksize, self.out_ksize))
-                # bt = j // (self.out_ksize * self.out_ksize)
-                # hh = j % (self.out_ksize * self.out_ksize) // self.out_ksize
-                # ww = j % self.out_ksize
-                hs = hstart[hh]
-                he = hend[hh]
-                ws = wstart[ww]
-                we = wend[ww]
-                # if (he - kmax_half > 0 and hs - kmax_half < i_height - 1 and
-                #     we - kmax_half > 0 and ws - kmax_half < i_width - 1):
-                roi_data = x_pad[bt, :, hs:he, ws:we].reshape(channels, -1)
-                ret[bt, :, y_root * self.out_ksize + hh,
-                    x_root * self.out_ksize + ww] = numpy.max(roi_data, axis=1)
-                # get the max idx respect to feature_maps coordinates
-                max_idx_slice = numpy.unravel_index(
-                    numpy.argmax(roi_data, axis=1), (he - hs, we - ws))
-                max_idx_slice_h = max_idx_slice[0] + (hs - kmax_half)
-                max_idx_slice_w = max_idx_slice[1] + (ws - kmax_half)
-                max_idx_slice = max_idx_slice_h * i_width + max_idx_slice_w
-                self.argmax_data[bt, :, y_root * self.out_ksize + hh,
-                                 x_root * self.out_ksize + ww] = max_idx_slice
-                # else:
-                #     ret[bt, :, y_root * self.out_ksize + hh,
-                #         x_root * self.out_ksize + ww] = 0
-                #     self.argmax_data[bt, :, y_root * self.out_ksize + hh,
-                #                      x_root * self.out_ksize + ww] = -1
+            # for j in six.moves.range(batchsize):
+            #     ik = in_ksize[j]
+            #     psj = pad_size[j]
+            #     sj = stride[j]
+            #     col = numpy.empty((channels, ik, ik, self.out_ksize, self.out_ksize))
+            #     roi = x_pad[j, :, ymin[j]:(ymin[j]+ ik), xmin[j]:(xmin[j]+ ik)]
+            #     # roi = numpy.pad(x_pad[j, :, ymin[j]:(ymin[j]+ ik), xmin[j]:(xmin[j]+ ik)],
+            #     #                 ((0, 0), (psj,  psj), (psj, psj)),
+            #     #                 mode='constant', constant_values=(0,))
+            #     for k in six.moves.range(ik * ik):
+            #         yy, xx = numpy.unravel_index(k, (self.out_ksize, self.out_ksize))
+            #         # col[:, yy, xx, :, :] = roi[:, yy:(yy + sj), xx:(xx + sj)]
 
-            # ret[:, :, y_root:(y_root + self.out_ksize),
-            #     x_root:(x_root + self.out_ksize)] = patch_max
-            # self.argmax_data[:, :, y_root:(y_root + self.out_ksize),
-            #     x_root:(x_root + self.out_ksize)] = patch_argmax
-            # print ret
-            # print self.argmax_data
+            #     col = col.reshape(channels, ik * ik, self.out_ksize, self.out_ksize)
+            #     ret[j, :, y_root:(y_root + self.out_ksize),
+            #         x_root:(x_root + self.out_ksize)] = numpy.max(col,axis=1)
 
-            # for hh in six.moves.range(len(hstart)):
-            #     for ww in six.moves.range(len(wstart)):
-            #         roi_data = x[i_batch, :, hstart[hh]:hed, slicew].reshape(channels, -1)
-            #         ret[i_batch, :, out_h, out_w] = numpy.max(roi_data, axis=1)
-            #         # get the max idx respect to feature_maps coordinates
-            #         max_idx_slice = numpy.unravel_index(
-            #             numpy.argmax(roi_data, axis=1), (lenh, lenw))
-            #         max_idx_slice_h = max_idx_slice[0] + sliceh.start
-            #         max_idx_slice_w = max_idx_slice[1] + slicew.start
-            #         max_idx_slice = max_idx_slice_h * i_width + max_idx_slice_w
-            #         self.argmax_data[i_batch, :, out_h, out_w] = max_idx_slice
-            #         pass
+            #     self.argmax_data[j, :, y_root:(y_root + self.out_ksize),
+            #                      x_root:(x_root + self.out_ksize)] = numpy.argmax(col,axis=1)
+
+            for bt in six.moves.range(batchsize):
+                for hh, ww in zip(mesh_h.ravel(), mesh_w.ravel()):
+                    hs = int(hstart[hh])
+                    he = int(hend[hh])
+                    ws = int(wstart[ww])
+                    we = int(wend[ww])
+                    roi_data = x_pad[bt, :, hs:he, ws:we].reshape(channels, -1)
+                    ret[bt, :, y_root * self.out_ksize + hh,
+                        x_root * self.out_ksize + ww] = numpy.max(roi_data, axis=1)
+                    # get the max idx respect to feature_maps coordinates
+                    max_idx_slice = numpy.unravel_index(numpy.argmax(roi_data, axis=1),(he - hs, we - ws))
+                    max_idx_sliceh = max_idx_slice[0] + hs - kmax_half
+                    max_idx_slicew = max_idx_slice[1] + ws - kmax_half
+                    max_idx_sliceh[(max_idx_sliceh < 0)+(max_idx_sliceh > i_height - 1)] = -im_size
+                    max_idx_slicew[(max_idx_slicew < 0)+(max_idx_slicew > i_width - 1)] = -im_size
+                    max_idx_slice = max_idx_sliceh * i_width + max_idx_slicew
+                    self.argmax_data[bt, :, y_root * self.out_ksize + hh,
+                                     x_root * self.out_ksize + ww] = max_idx_slice
+            # for j in six.moves.range(batchsize * self.out_ksize * self.out_ksize):
+            #     bt, hh, ww = numpy.unravel_index(j, (batchsize, self.out_ksize, self.out_ksize))
+            #     hs = hstart[hh]
+            #     he = hend[hh]
+            #     ws = wstart[ww]
+            #     we = wend[ww]
+            #     roi_data = x_pad[bt, :, hs:he, ws:we].reshape(channels, -1)
+            #     ret[bt, :, y_root * self.out_ksize + hh,
+            #     x_root * self.out_ksize + ww] = numpy.max(roi_data, axis=1)
+            #     # get the max idx respect to feature_maps coordinates
+            #     max_idx_slice = numpy.unravel_index(numpy.argmax(roi_data, axis=1), (he - hs, we - ws))
+            #     max_idx_slice_h = max_idx_slice[0] + (hs - kmax_half)
+            #     max_idx_slice_w = max_idx_slice[1] + (ws - kmax_half)
+            #     max_idx_slice_h[(max_idx_slice_h < 0)+(max_idx_slice_h > i_height - 1)] = - im_size
+            #     max_idx_slice_w[(max_idx_slice_w < 0)+(max_idx_slice_w > i_width - 1)] = - im_size
+            #     max_idx_slice = max_idx_slice_h * i_width + max_idx_slice_w
+            #     self.argmax_data[bt, :, y_root * self.out_ksize + hh,
+            #                      x_root * self.out_ksize + ww] = max_idx_slice
 
         print "infer"
         print time.time() - t
