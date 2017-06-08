@@ -8,16 +8,6 @@ from chainer.utils import conv
 
 import time
 
-def _roi_pooling_slice(size, stride, max_size, roi_offset):
-    start = int(numpy.floor(size * stride))
-    end = int(numpy.ceil((size + 1) * stride))
-
-    start = min(max(start + roi_offset, 0), max_size)
-    end = min(max(end + roi_offset, 0), max_size)
-
-    return slice(start, end), end - start
-
-
 class ConvolutionROIPooling(function.Function):
     def __init__(self, out_ksize=3, stride=1, pad=0):
         self.out_ksize = out_ksize
@@ -35,7 +25,7 @@ class ConvolutionROIPooling(function.Function):
         )
 
     def forward_cpu(self, inputs):
-        # t = time.time()
+        t = time.time()
         x, ksizes_half = inputs
         ksizes_half = ksizes_half //2
         batchsize, channels, i_height, i_width = x.shape
@@ -46,6 +36,7 @@ class ConvolutionROIPooling(function.Function):
 
         patch_max = numpy.empty((batchsize, channels, self.out_ksize, self.out_ksize))
         patch_argmax = numpy.empty((2, batchsize, channels, self.out_ksize, self.out_ksize))
+        tmp_argmax = numpy.empty((2, batchsize, channels, o_height, o_width))
 
         kmax_half = int(ksizes_half.max())
         x_pad = numpy.pad(x,
@@ -55,7 +46,7 @@ class ConvolutionROIPooling(function.Function):
 
         im_size = i_width * i_height
         mod = numpy.arange(self.out_ksize)
-        mesh_b, mesh_h, mesh_w = numpy.meshgrid(numpy.arange(batchsize), mod, mod)
+        mesh_b, mesh_h, mesh_w = numpy.meshgrid(six.moves.range(batchsize), mod, mod)
 
         arange_h = numpy.arange(i_height)
         arange_w = numpy.arange(i_width)
@@ -102,13 +93,14 @@ class ConvolutionROIPooling(function.Function):
                 patch_argmax[1, bt, :, hh, ww] = max_idx_slice[1] + ws - kmax_half # width
 
             ret[:, :, slicey, slicex] = patch_max
-            patch_argmax[0][patch_argmax[0] > i_height - 1] = - im_size
-            patch_argmax[1][patch_argmax[1] > i_width - 1] = - im_size
-            patch_argmax[patch_argmax < 0] = - im_size
-            patch_argmax_ind = patch_argmax[0] * i_width + patch_argmax[1]
-            self.argmax_data[:, :, slicey, slicex] = patch_argmax_ind
+            tmp_argmax[:, :, :, slicey, slicex] = patch_argmax
 
-        # print time.time() - t
+        tmp_argmax[0][tmp_argmax[0] > i_height - 1] = - im_size
+        tmp_argmax[1][tmp_argmax[1] > i_width - 1] = - im_size
+        tmp_argmax[tmp_argmax < 0] = - im_size
+        self.argmax_data = tmp_argmax[0] * i_width + tmp_argmax[1]
+
+        print time.time() - t
         return ret,
 
 
@@ -192,62 +184,40 @@ class ConvolutionROIPooling(function.Function):
         batchsize, channels, i_height, i_width = x.shape
         o_height = self.out_ksize * i_height
         o_width = self.out_ksize * i_width
-        ret_delta = numpy.zeros_like(x, dtype=numpy.float32)
-
-        tot = time.time()
-        for h in six.moves.range(i_height):
-            for w in six.moves.range(i_width):
-                mask = (self.argmax_data == h * i_width + w)
-                ret_delta[:, :, h, w] = numpy.sum((mask * gy[0]), axis=-1).sum(axis=-1)
-
-        # cnt = 0
 
         # duplicated simple implimentation
-        # for i_batch in six.moves.range(batchsize):
-        #     for o_h in six.moves.range(o_height):
-        #         for o_w in six.moves.range(o_width):
-        #             for c in six.moves.range(channels):
-        #                 max_idx = self.argmax_data[i_batch, c, o_h, o_w]
-        #                 if max_idx >= 0:
-        #                     h = max_idx // i_width
-        #                     w = max_idx % i_width
-        #                     ret_delta[i_batch, c, h, w] += gy[0][i_batch, c, o_h, o_w]
-        #                 cnt +=1
+        # tot = time.time()
+        # ret_delta = numpy.zeros_like(x, dtype=numpy.float32)
+        # max_indices = numpy.where(self.argmax_data >= 0)
+        # h_list = (self.argmax_data[max_indices[0], max_indices[1],
+        #                           max_indices[2], max_indices[3]] // i_width).astype(numpy.int32)
+        # w_list = (self.argmax_data[max_indices[0], max_indices[1],
+        #                            max_indices[2], max_indices[3]] % i_width).astype(numpy.int32)
+        # for i in six.moves.range(len(h_list)):
+        #     ret_delta[max_indices[0][i], max_indices[1][i], h_list[i], w_list[i]] += \
+        #          gy[0][max_indices[0][i], max_indices[1][i], max_indices[2][i], max_indices[3][i]]
 
+        tot = time.time()
+        ret_delta = numpy.zeros_like(x, dtype=numpy.float32)
+        for i_batch in six.moves.range(batchsize):
+            for c in six.moves.range(channels):
+                max_indices = numpy.where(self.argmax_data[i_batch, c] >= 0)
+                h_list = (self.argmax_data[i_batch, c,max_indices[0],
+                                           max_indices[1]] // i_width).astype(numpy.int32)
+                w_list = (self.argmax_data[i_batch, c, max_indices[0],
+                                           max_indices[1]] % i_width).astype(numpy.int32)
+                for i in six.moves.range(len(h_list)):
+                    ret_delta[i_batch, c, h_list[i], w_list[i]] += \
+                                        gy[0][i_batch,c, max_indices[0][i], max_indices[1][i]]
+                # for o_h in six.moves.range(o_height):
+                #     for o_w in six.moves.range(o_width):
+                #         max_idx = self.argmax_data[i_batch, c, o_h, o_w]
+                #         if max_idx >= 0:
+                #             h = int(max_idx // i_width)
+                #             w = int(max_idx % i_width)
+                #             ret_delta[i_batch, c, h, w] += gy[0][i_batch, c, o_h, o_w]
 
-
-        # print "gy size : " + str(gy[0][0].size)
-        # for i_batch in six.moves.range(batchsize):
-        #     for (i, i_kernel)in enumerate(ksizes[i_batch].ravel()):
-        #         ksize = int(max(i_kernel, 1))
-
-        #         xmin = max(i % i_width - ksize / 2, 0)
-        #         xmax = min(i % i_width + ksize / 2, i_width - 1)
-        #         ymin = max(i // i_width - ksize / 2, 0)
-        #         ymax = min(i // i_width + ksize / 2, i_height - 1)
-
-        #         phstart = i // i_width * self.out_ksize
-        #         phend = (i // i_width + 1) * self.out_ksize
-        #         pwstart = i % i_width * self.out_ksize
-        #         pwend = (i % i_width + 1) * self.out_ksize
-
-        #         phstart = min(max(phstart, 0), o_height)
-        #         phend = min(max(phend, 0), o_height)
-        #         pwstart = min(max(pwstart, 0), o_width)
-        #         pwend = min(max(pwend, 0), o_width)
-
-        #         # iterate all the w, h (from feature map) that fall into this ROIs
-        #         for w in six.moves.range(xmin, xmax + 1):
-        #             for h in six.moves.range(ymin, ymax + 1):
-        #                 for ph in six.moves.range(phstart, phend):
-        #                     for pw in six.moves.range(pwstart, pwend):
-        #                         max_idx_tmp = self.argmax_data[i_batch, :, ph, pw]
-        #                         for c in six.moves.range(channels):
-        #                             if max_idx_tmp[c] == (h * i_width + w):
-        #                                 ret_delta[i_batch, c, h, w] +=  gy[0][i_batch, c, ph, pw]
-            #                             cnt +=1
-            # print cnt
-        print "total"
+        print "total2"
         print time.time() - tot
         print "----------"
         return ret_delta, None
