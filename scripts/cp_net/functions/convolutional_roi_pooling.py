@@ -226,80 +226,42 @@ class ConvolutionROIPooling(function.Function):
     def backward_gpu(self, inputs, gy):
         x, ksizes = inputs
         batchsize, channels, i_height, i_width = x.shape
-        o_height = self.out_ksize * i_height
-        o_width = self.out_ksize * i_width
         ret_delta = cuda.cupy.zeros_like(x, dtype=numpy.float32)
+        kmax_half = int(ksizes.max() // 2)
         cuda.cupy.ElementwiseKernel(
             '''
-            raw float32 top_diff, raw int32 argmax_data, raw T ksizes,
+            raw float32 top_diff, raw int32 argmax_data,
             int32 in_h, int32 in_w, int32 channels,
-            int32 out_h, int32 out_w, int32 out_ksize
+            int32 out_ksize, int32 kmax_half
             ''',
             'float32 ret_diff',
             '''
-            int idx_batch = i / (in_h * in_w * channels);
-            int idx_channels = (i % (in_h * in_w * channels)) / (in_h * in_w);
             int w = i % in_w;
             int h = (i / in_w) % in_h;
 
-            int data_offset = (idx_batch * channels + idx_channels) * out_h * out_w;
+            int out_h = in_h * out_ksize;
+            int out_w = in_w * out_ksize;
+            int data_offset = i / (in_h * in_w) * out_h * out_w;
 
             float gradient = 0;
+            int hstart = max((h - kmax_half - 1) * out_ksize, 0);
+            int hend = min((h + kmax_half + 1 + 1) * out_ksize, out_h);
+            int wstart = max((w - kmax_half - 1) * out_ksize, 0);
+            int wend = min((w + kmax_half + 1 + 1) *out_ksize, out_w);
 
-            // naive implimentation
-            for(int oh = 0 ; oh < out_h ; oh++){
-                for(int ow = 0 ; ow < out_w ; ow++){
+            for(int oh = hstart ; oh < hend ; oh++){
+                for(int ow = wstart ; ow < wend ; ow++){
                     int index_ = oh * out_w + ow + data_offset;
-                    if(argmax_data[index_] == (h * in_w + w)) {
+                    if(argmax_data[index_] == in_w * h + w) {
                         gradient += top_diff[index_];
                     }
                 }
             }
-
-            /*
-            // Accumulate gradient over all ROIs that pooled this element
-            for (int idx_img = 0; idx_img < in_h * in_w ; ++idx_img){
-                int ksize = ksizes[idx_batch * in_h * in_w + idx_img];
-                ksize = max(ksize, 1);
-                int roi_start_w = max(min(idx_img % in_w - ksize / 2, in_w -1), 0);
-                int roi_start_h = max(min(idx_img / in_w - ksize / 2, in_h - 1), 0);
-                int roi_end_w = max(min(idx_img % in_w + ksize / 2, in_w - 1), 0);
-                int roi_end_h = max(min(idx_img / in_w + ksize/ 2, in_h - 1), 0);
-
-                // Skip if ROI doesn't include (h, w)
-                const bool in_roi = (w >= roi_start_w && w <= roi_end_w &&
-                                     h >= roi_start_h && h <= roi_end_h);
-                if (!in_roi) {
-                    continue;
-                }
-
-                int phstart = (idx_img / in_w) * out_ksize;
-                int phend = (idx_img / in_w + 1) * out_ksize;
-                int pwstart = (idx_img % in_w) * out_ksize;
-                int pwend = (idx_img % in_w + 1) * out_ksize;
-
-                phstart = min(max(phstart, 0), out_h);
-                phend = min(max(phend, 0), out_h);
-                pwstart = min(max(pwstart, 0), out_w);
-                pwend = min(max(pwend, 0), out_h);
-
-                for (int ph = phstart; ph < phend; ++ph) {
-                    for (int pw = pwstart; pw < pwend; ++pw) {
-                        int index_ = ph * out_w + pw + data_offset;
-                        if (argmax_data[index_] == (h * in_w + w)) {
-                            gradient += top_diff[index_];
-                        }
-                    }
-                }
-            }
-            */
             ret_diff = gradient;
             ''', 'convlitional_roi_pooling_bwd'
-        )(gy[0], self.argmax_data, ksizes, i_height, i_width, channels,
-          o_height, o_width, self.out_ksize,
+        )(gy[0], self.argmax_data, i_height, i_width, channels,
+          self.out_ksize, kmax_half,
           ret_delta)
-        # print ret_delta.shape
-        # print ret_delta.sum()
         return ret_delta, None
 
 
