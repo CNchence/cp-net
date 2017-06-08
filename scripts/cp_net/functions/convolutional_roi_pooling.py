@@ -110,18 +110,17 @@ class ConvolutionROIPooling(function.Function):
         o_height = self.out_ksize * i_height
         o_width = self.out_ksize * i_width
         ret_data = cuda.cupy.empty((batchsize, channels, o_height, o_width), dtype=x.dtype)
-        self.argmax_data = cuda.cupy.empty((batchsize, channels, o_height, o_width),
-                                           numpy.int32)
-        # cnt = cuda.cupy.zeros(ret_data.shape, numpy.float32)
+        self.argmax_data = cuda.cupy.empty_like(ret_data, numpy.int32)
         cuda.cupy.ElementwiseKernel(
             '''
-            raw float32 in_img, raw T ksizes, int32 in_h, int32 in_w, int32 channels,
-            int32 out_h, int32 out_w, int32 out_ksize
+            raw float32 in_img, raw float32 ksizes, int32 in_h, int32 in_w,
+            int32 channels, int32 out_ksize
             ''',
             'float32 ret, int32 argmax_data',
             '''
+            int out_h = in_h * out_ksize;
+            int out_w = in_w * out_ksize;
             int idx_batch = i / (out_h * out_w * channels);
-            int idx_channels = (i % (out_h * out_w * channels)) / (out_h * out_w);
             int o_x = i % out_w;
             int o_y = (i / out_w) % out_h;
 
@@ -131,27 +130,24 @@ class ConvolutionROIPooling(function.Function):
             int y_root_mod = o_y % out_ksize;
 
             int ksize = ksizes[idx_batch * in_h * in_w + y_root * in_w + x_root];
-            ksize = max(ksize, 1);
+            int ksize_half = max(ksize, 1) / 2;
 
-            int ymin = y_root - ksize / 2;
-            int xmin = x_root - ksize / 2;
+            int ymin = y_root - ksize_half;
+            int xmin = x_root - ksize_half;
 
-            int ksize_half = ksize / 2;
-            float bin_size_h = static_cast<float>(ksize_half * 2 + 1)
-                                   / static_cast<float>(out_ksize);
-            float bin_size_w = static_cast<float>(ksize_half * 2 + 1)
+            float bin_size = static_cast<float>(ksize_half * 2 + 1)
                                    / static_cast<float>(out_ksize);
 
-            int hstart = static_cast<int>(floor(y_root_mod * bin_size_h)) + ymin;
-            int wstart = static_cast<int>(floor(x_root_mod * bin_size_w)) + xmin;
-            int hend = static_cast<int>(ceil((y_root_mod + 1) * bin_size_h)) + ymin;
-            int wend = static_cast<int>(ceil((x_root_mod + 1) * bin_size_w)) + xmin;
+            int hstart = static_cast<int>(floor(y_root_mod * bin_size));
+            int wstart = static_cast<int>(floor(x_root_mod * bin_size));
+            int hend = static_cast<int>(ceil((y_root_mod + 1) * bin_size));
+            int wend = static_cast<int>(ceil((x_root_mod + 1) * bin_size));
 
             // Add roi offsets and clip to input boundaries
-            hstart = min(max(hstart, 0), in_h);
-            hend = min(max(hend, 0), in_h);
-            wstart = min(max(wstart, 0), in_w);
-            wend = min(max(wend, 0), in_w);
+            hstart = min(max(hstart + ymin, 0), in_h);
+            hend = min(max(hend + ymin, 0), in_h);
+            wstart = min(max(wstart + xmin, 0), in_w);
+            wend = min(max(wend + xmin, 0), in_w);
 
             bool is_empty = (hend <= hstart) || (wend <= wstart);
 
@@ -159,9 +155,9 @@ class ConvolutionROIPooling(function.Function):
             float maxval = is_empty ? 0 : -1E+37;
             // If nothing is pooled, argmax=-1 causes nothing to be backprop'd
             int maxidx = -1;
-            int data_offset = (idx_batch * channels + idx_channels) * in_h * in_w;
+            int data_offset = i / (out_h * out_w) * in_h * in_w;
             for (int h = hstart; h < hend; ++h){
-                for (int w = wstart + 1; w < wend; ++w) {
+                for (int w = wstart; w < wend; ++w) {
                     int root_idx = h * in_w + w;
                     if (in_img[data_offset + root_idx] > maxval){
                         maxval = in_img[data_offset + root_idx];
@@ -173,7 +169,7 @@ class ConvolutionROIPooling(function.Function):
             argmax_data = maxidx;
             ''',
             'convolutional_roi_pooling_fwd'
-        )(x, ksizes, i_height, i_width, channels, o_height, o_width, self.out_ksize,
+        )(x, ksizes, i_height, i_width, channels, self.out_ksize,
           ret_data, self.argmax_data)
 
         return ret_data,
@@ -244,13 +240,13 @@ class ConvolutionROIPooling(function.Function):
             int data_offset = i / (in_h * in_w) * out_h * out_w;
 
             float gradient = 0;
-            int hstart = max((h - kmax_half - 1) * out_ksize, 0);
-            int hend = min((h + kmax_half + 1 + 1) * out_ksize, out_h);
-            int wstart = max((w - kmax_half - 1) * out_ksize, 0);
-            int wend = min((w + kmax_half + 1 + 1) *out_ksize, out_w);
+            int hstart = max((h - kmax_half ) * out_ksize, 0);
+            int hend = min((h + kmax_half + 1) * out_ksize, out_h);
+            int wstart = max((w - kmax_half) * out_ksize, 0);
+            int wend = min((w + kmax_half + 1) *out_ksize, out_w);
 
-            for(int oh = hstart ; oh < hend ; oh++){
-                for(int ow = wstart ; ow < wend ; ow++){
+            for(int oh = hstart ; oh < hend ; ++oh){
+                for(int ow = wstart ; ow < wend ; ++ow){
                     int index_ = oh * out_w + ow + data_offset;
                     if(argmax_data[index_] == in_w * h + w) {
                         gradient += top_diff[index_];
