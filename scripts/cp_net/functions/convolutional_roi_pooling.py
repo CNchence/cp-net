@@ -32,11 +32,15 @@ class ConvolutionROIPooling(function.Function):
         o_height = self.out_ksize * i_height
         o_width = self.out_ksize * i_width
         ret = numpy.empty((batchsize, channels, o_height, o_width), dtype=numpy.float32)
-        self.argmax_data = numpy.empty((batchsize, channels, o_height, o_width), numpy.int32)
+        self.argmax_data = numpy.empty((batchsize, channels, o_height, o_width),
+                                       dtype=numpy.int32)
 
-        patch_max = numpy.empty((batchsize, channels, self.out_ksize, self.out_ksize))
-        patch_argmax = numpy.empty((2, batchsize, channels, self.out_ksize, self.out_ksize))
-        tmp_argmax = numpy.empty((2, batchsize, channels, o_height, o_width))
+        patch_max = numpy.empty((batchsize, channels, self.out_ksize, self.out_ksize),
+                                dtype=numpy.float32)
+        patch_argmax = numpy.empty((2, batchsize, channels, self.out_ksize, self.out_ksize),
+                                   dtype=numpy.int32)
+        tmp_argmax = numpy.empty((2, batchsize, channels, o_height, o_width),
+                                 dtype=numpy.int32)
 
         kmax_half = int(ksizes_half.max())
         x_pad = numpy.pad(x,
@@ -44,7 +48,6 @@ class ConvolutionROIPooling(function.Function):
                            (kmax_half,  kmax_half), (kmax_half, kmax_half)),
                           mode='constant', constant_values=(0,))
 
-        im_size = i_width * i_height
         mod = numpy.arange(self.out_ksize)
         mesh_b, mesh_h, mesh_w = numpy.meshgrid(six.moves.range(batchsize), mod, mod)
 
@@ -56,34 +59,21 @@ class ConvolutionROIPooling(function.Function):
         mesh_ymin = arange_h[:,numpy.newaxis] - ksizes_half + kmax_half
         stride_mesh = (ksizes_half * 2 + 1) / self.out_ksize
 
-        # hstart = (numpy.floor(mod * stride[:,numpy.newaxis]) + ymin[:,numpy.newaxis]).ravel()
-        # wstart = (numpy.floor(mod * stride[:,numpy.newaxis]) + xmin[:,numpy.newaxis]).ravel()
-        # hend = (numpy.ceil((mod + 1) * stride[:,numpy.newaxis]) + ymin[:,numpy.newaxis]).ravel()
-        # wend = (numpy.ceil((mod + 1) * stride[:,numpy.newaxis]) + xmin[:,numpy.newaxis]).ravel()
+        hstart_mesh = numpy.floor(mod[:, numpy.newaxis, numpy.newaxis, numpy.newaxis, numpy.newaxis] * stride_mesh[numpy.newaxis,:]) + mesh_ymin[numpy.newaxis,:]
+        hend_mesh= numpy.ceil((mod[:, numpy.newaxis, numpy.newaxis, numpy.newaxis, numpy.newaxis] + 1) * stride_mesh[numpy.newaxis,:]) + mesh_ymin[numpy.newaxis,:]
+        wstart_mesh = numpy.floor(mod[:, numpy.newaxis, numpy.newaxis, numpy.newaxis, numpy.newaxis] * stride_mesh[numpy.newaxis,:]) + mesh_xmin[numpy.newaxis,:]
+        wend_mesh= numpy.ceil((mod[:, numpy.newaxis, numpy.newaxis, numpy.newaxis, numpy.newaxis] + 1) * stride_mesh[numpy.newaxis,:]) + mesh_xmin[numpy.newaxis,:]
 
-        # for i in six.moves.range(im_size):
         for y_root, x_root in six.moves.zip(mesh_y.ravel(), mesh_x.ravel()):
             slicey = slice(y_root * self.out_ksize, (y_root + 1) * self.out_ksize)
             slicex = slice(x_root * self.out_ksize, (x_root + 1) * self.out_ksize)
 
-            xmin = mesh_xmin[:, 0, y_root, x_root][:,numpy.newaxis]
-            ymin = mesh_ymin[:, 0, y_root, x_root][:,numpy.newaxis]
-            stride = stride_mesh[:, 0, y_root, x_root][:,numpy.newaxis]
-
-            hstart = (numpy.floor(mod * stride) + ymin).ravel()
-            wstart = (numpy.floor(mod * stride) + xmin).ravel()
-            hend = (numpy.ceil((mod + 1) * stride) + ymin).ravel()
-            wend = (numpy.ceil((mod + 1) * stride) + xmin).ravel()
-
             for bt, hh, ww in zip(mesh_b.ravel(), mesh_h.ravel(), mesh_w.ravel()):
-                hs = int(hstart[hh])
-                he = int(hend[hh])
-                ws = int(wstart[ww])
-                we = int(wend[ww])
-                # hs = int(hstart[bt, :, hh, ww])
-                # he = int(hend[bt, :, hh, ww])
-                # ws = int(wstart[bt, :, hh, ww])
-                # we = int(wend[bt, :, hh, ww])
+                hs = int(hstart_mesh[hh, bt, 0, y_root, x_root])
+                he = int(hend_mesh[hh, bt, 0, y_root, x_root])
+                ws = int(wstart_mesh[ww, bt, 0, y_root, x_root])
+                we = int(wend_mesh[ww, bt, 0, y_root, x_root])
+
                 roi_data = x_pad[bt, :, hs:he, ws:we].reshape(channels, -1)
                 patch_max[bt, :, hh, ww] = numpy.max(roi_data, axis=1)
                 # get the max idx respect to feature_maps coordinates
@@ -95,12 +85,13 @@ class ConvolutionROIPooling(function.Function):
             ret[:, :, slicey, slicex] = patch_max
             tmp_argmax[:, :, :, slicey, slicex] = patch_argmax
 
+        im_size = i_width * i_height
         tmp_argmax[0][tmp_argmax[0] > i_height - 1] = - im_size
         tmp_argmax[1][tmp_argmax[1] > i_width - 1] = - im_size
         tmp_argmax[tmp_argmax < 0] = - im_size
         self.argmax_data = tmp_argmax[0] * i_width + tmp_argmax[1]
 
-        print time.time() - t
+        print (time.time() - t)
         return ret,
 
 
@@ -178,44 +169,35 @@ class ConvolutionROIPooling(function.Function):
     def backward_cpu(self, inputs, gy):
         x, ksizes = inputs
         batchsize, channels, i_height, i_width = x.shape
-        o_height = self.out_ksize * i_height
-        o_width = self.out_ksize * i_width
 
-        # duplicated simple implimentation
         # tot = time.time()
-        # ret_delta = numpy.zeros_like(x, dtype=numpy.float32)
-        # max_indices = numpy.where(self.argmax_data >= 0)
-        # h_list = (self.argmax_data[max_indices[0], max_indices[1],
-        #                           max_indices[2], max_indices[3]] // i_width).astype(numpy.int32)
-        # w_list = (self.argmax_data[max_indices[0], max_indices[1],
-        #                            max_indices[2], max_indices[3]] % i_width).astype(numpy.int32)
-        # for i in six.moves.range(len(h_list)):
-        #     ret_delta[max_indices[0][i], max_indices[1][i], h_list[i], w_list[i]] += \
-        #          gy[0][max_indices[0][i], max_indices[1][i], max_indices[2][i], max_indices[3][i]]
 
-        tot = time.time()
-        ret_delta = numpy.zeros_like(x, dtype=numpy.float32)
-        for i_batch in six.moves.range(batchsize):
-            for c in six.moves.range(channels):
-                max_indices = numpy.where(self.argmax_data[i_batch, c] >= 0)
-                h_list = (self.argmax_data[i_batch, c,max_indices[0],
-                                           max_indices[1]] // i_width).astype(numpy.int32)
-                w_list = (self.argmax_data[i_batch, c, max_indices[0],
-                                           max_indices[1]] % i_width).astype(numpy.int32)
-                for i in six.moves.range(len(h_list)):
-                    ret_delta[i_batch, c, h_list[i], w_list[i]] += \
-                                        gy[0][i_batch,c, max_indices[0][i], max_indices[1][i]]
-                # for o_h in six.moves.range(o_height):
-                #     for o_w in six.moves.range(o_width):
-                #         max_idx = self.argmax_data[i_batch, c, o_h, o_w]
-                #         if max_idx >= 0:
-                #             h = int(max_idx // i_width)
-                #             w = int(max_idx % i_width)
-                #             ret_delta[i_batch, c, h, w] += gy[0][i_batch, c, o_h, o_w]
+        i_imsize = i_height * i_width
+        o_imsize = i_imsize * (self.out_ksize ** 2)
+        ret_delta = numpy.zeros_like(x.ravel(), dtype=gy[0].dtype)
 
-        print "total2"
-        print time.time() - tot
-        print "----------"
+        max_indices, = numpy.where(self.argmax_data.ravel() >= 0)
+
+        ## indices with offset(minibatch * channel)
+        delta_indices = self.argmax_data.ravel()[max_indices] + max_indices // o_imsize * i_imsize
+
+        ret_delta = numpy.bincount(delta_indices, weights=gy[0].ravel()[max_indices])
+        ret_delta = ret_delta.reshape(x.shape).astype(numpy.float32)
+
+        # ret_delta = numpy.empty_like(x, dtype=gy[0].dtype)
+        # for i_b in six.moves.range(batchsize):
+        #     for i_c in six.moves.range(channels):
+        #         max_indices, = numpy.where(self.argmax_data[i_b, i_c].ravel() >= 0)
+        #         delta_indices = self.argmax_data[i_b, i_c].ravel()[max_indices]
+        #         gy_tmp = gy[0][i_b, i_c].ravel()
+        #         patch_delta = numpy.zeros((i_height * i_width), dtype=gy[0].dtype)
+        #         for ind, max_ind in six.moves.zip(delta_indices, max_indices):
+        #             patch_delta[ind] += gy_tmp[max_ind]
+        #         ret_delta[i_b, i_c] = patch_delta.reshape(i_height, i_width)
+
+        # print "total"
+        # print time.time() - tot
+        # print "----------"
         return ret_delta, None
 
 
