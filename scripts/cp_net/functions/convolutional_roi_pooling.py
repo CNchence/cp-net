@@ -82,20 +82,20 @@ class ConvolutionROIPooling(function.Function):
 
         for i in six.moves.range(i_height * i_width):
             y_root = i // i_width
-            x_root = i % i_height
+            x_root = i % i_width
             for bt in six.moves.range(batchsize):
-                slicew = slicew_mesh[:, bt, 0, y_root, x_root]
                 dh = delta_h[:, bt, 0, y_root, x_root]
                 sliceh = sliceh_mesh[:, bt, 0, y_root, x_root]
-                dw = delta_h[:, bt, 0, y_root, x_root]
+                dw = delta_w[:, bt, 0, y_root, x_root]
+                slicew = slicew_mesh[:, bt, 0, y_root, x_root]
                 for j in six.moves.range(self.out_ksize **2):
                     hh = j // self.out_ksize
                     ww = j % self.out_ksize
                     # get the max idx respect to feature_maps coordinates
-                    max_ind = numpy.argmax(
-                        x_pad[bt, :,
-                              sliceh[hh], slicew[ww]].reshape(channels, -1), axis=1)
-                    max_idx_slice = numpy.unravel_index(max_ind, (dh[hh], dw[ww]))
+                    max_idx_slice = numpy.unravel_index(
+                        numpy.argmax(
+                            x_pad[bt, :,sliceh[hh], slicew[ww]].reshape(channels, -1), axis=1),
+                        (dh[hh], dw[ww]))
                     patch_argmax[0, bt, :, hh, ww] = max_idx_slice[0] # h
                     patch_argmax[1, bt, :, hh, ww] = max_idx_slice[1] # w
             tmp_argmax[:,:,:, y_root * self.out_ksize + k_indices_h,
@@ -204,8 +204,8 @@ class ConvolutionROIPooling(function.Function):
 
         ## indices with offset(minibatch * channel)
         delta_indices = self.argmax_data.ravel()[max_indices] + max_indices // o_imsize * i_imsize
-
-        ret_delta = numpy.bincount(delta_indices, weights=gy[0].ravel()[max_indices])
+        ret_delta = numpy.bincount(delta_indices, weights=gy[0].ravel()[max_indices]
+                                   , minlength=len(x.ravel()))
         ret_delta = ret_delta.reshape(x.shape).astype(numpy.float32)
 
         # ret_delta = numpy.empty_like(x, dtype=gy[0].dtype)
