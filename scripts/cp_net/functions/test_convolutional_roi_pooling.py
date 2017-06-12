@@ -18,12 +18,17 @@ convolutional_roi_pooling.roi_pooling_2d = convolutional_roi_pooling
 class TestConvlotionalROIPooling(unittest.TestCase):
 
     def setUp(self):
-        batchsize = 2
-        self.x = numpy.random.randn(batchsize, 2, 12, 12).astype(numpy.float32)
-        self.ksizes = numpy.random.randint(1, 6, (batchsize, 12, 12)).astype(numpy.float32)
+        batchsize = 4
+        i_height = 120
+        i_width = 120
+        ch = 20
+        self.x = numpy.random.randn(batchsize, ch,
+                                    i_height, i_width).astype(numpy.float32)
+        self.ksizes = numpy.random.randint(1, 6, (batchsize, 1,
+                                                  i_height, i_width)).astype(numpy.float32)
         self.out_ksize = 3
-        self.gy = numpy.random.uniform(-1, 1, (batchsize, 2, self.out_ksize * 12,
-                                               self.out_ksize * 12)).astype(numpy.float32)
+        self.gy = numpy.random.uniform(-1, 1, (batchsize, ch, self.out_ksize * i_height,
+                                               self.out_ksize * i_width)).astype(numpy.float32)
 
     def check_forward(self, x_data, ksizes_data):
         x = chainer.Variable(x_data)
