@@ -10,7 +10,7 @@ import time
 
 class ConvolutionROIPooling(function.Function):
     def __init__(self, out_ksize=3, stride=1, pad=-10):
-        self.out_ksize = out_ksize
+        self.out_ksize = int(out_ksize)
         self.stride = stride
         self.pad = pad
 
@@ -35,12 +35,10 @@ class ConvolutionROIPooling(function.Function):
 
         self.argmax_data = numpy.empty((batchsize, channels, o_height, o_width),
                                        dtype=numpy.int32)
-        patch_argmax = numpy.empty((2, batchsize, channels, self.out_ksize, self.out_ksize),
-                                   dtype=numpy.int32)
         tmp_argmax = numpy.empty((2, batchsize, channels, o_height, o_width),
                                  dtype=numpy.int32)
 
-        kmax_half = int(ksizes_half.max())
+        kmax_half = int(ksizes_half.max() + 1)
         x_pad = numpy.pad(x,
                           ((0, 0), (0, 0),
                            (kmax_half,  kmax_half), (kmax_half, kmax_half)),
@@ -71,35 +69,67 @@ class ConvolutionROIPooling(function.Function):
         wstart_out = wstart_mesh.transpose(1,2,3,4,0).reshape(batchsize, 1, i_height, o_width)
         wstart_out = numpy.repeat(wstart_out, self.out_ksize, axis=2)
 
-        k_indices_h, k_indices_w = numpy.indices((self.out_ksize, self.out_ksize))
+        hend_out = hend_mesh.transpose(1,2,3,0,4).reshape(batchsize, 1, o_height, i_width)
+        hend_out = numpy.repeat(hend_out, self.out_ksize, axis=3)
+        wend_out = wend_mesh.transpose(1,2,3,4,0).reshape(batchsize, 1, i_height, o_width)
+        wend_out = numpy.repeat(wend_out, self.out_ksize, axis=2)
+        delta_h_out = hend_out - hstart_out
+        delta_w_out = wend_out - wstart_out
+        unique_dh = numpy.unique(delta_h_out)
+        unique_dw = numpy.unique(delta_w_out)
 
-        delta_h = hend_mesh - hstart_mesh
-        delta_w = wend_mesh - wstart_mesh
+        for i in unique_dh:
+            i_mask = (delta_h_out == i)
+            for j in unique_dw:
+                ij_mask = i_mask * (delta_w_out == j)
+                if not numpy.any(ij_mask):
+                    continue
+                ij_indices = numpy.where(ij_mask)
+                w_mod, h_mod = numpy.indices((i, j)).reshape(2, -1)
+                max_idx_slice = numpy.unravel_index(
+                    numpy.argmax(
+                        x_pad[ij_indices[0][:,numpy.newaxis], :,
+                              h_mod + hstart_out[ij_indices[0], 0, ij_indices[2],
+                                                 ij_indices[3]][:,numpy.newaxis],
+                              w_mod + wstart_out[ij_indices[0], 0, ij_indices[2],
+                                                 ij_indices[3]][:, numpy.newaxis]], axis=1),
+                    (i, j))
+                tmp_argmax[0, ij_indices[0], :, ij_indices[2], ij_indices[3]] = max_idx_slice[0]
+                tmp_argmax[1, ij_indices[0], :, ij_indices[2], ij_indices[3]] = max_idx_slice[1]
 
-        vf = numpy.vectorize(slice)
-        sliceh_mesh = vf(hstart_mesh, hend_mesh)
-        slicew_mesh = vf(wstart_mesh, wend_mesh)
+        # patch_argmax = numpy.empty((2, batchsize, channels, self.out_ksize * self.out_ksize),
+        #                            dtype=numpy.int32)
+        # k_indices_h, k_indices_w = numpy.indices((self.out_ksize, self.out_ksize))
+        # delta_h = hend_mesh - hstart_mesh
+        # delta_w = wend_mesh - wstart_mesh
 
-        for i in six.moves.range(i_height * i_width):
-            y_root = i // i_width
-            x_root = i % i_width
-            for bt in six.moves.range(batchsize):
-                dh = delta_h[:, bt, 0, y_root, x_root]
-                sliceh = sliceh_mesh[:, bt, 0, y_root, x_root]
-                dw = delta_w[:, bt, 0, y_root, x_root]
-                slicew = slicew_mesh[:, bt, 0, y_root, x_root]
-                for j in six.moves.range(self.out_ksize **2):
-                    hh = j // self.out_ksize
-                    ww = j % self.out_ksize
-                    # get the max idx respect to feature_maps coordinates
-                    max_idx_slice = numpy.unravel_index(
-                        numpy.argmax(
-                            x_pad[bt, :,sliceh[hh], slicew[ww]].reshape(channels, -1), axis=1),
-                        (dh[hh], dw[ww]))
-                    patch_argmax[0, bt, :, hh, ww] = max_idx_slice[0] # h
-                    patch_argmax[1, bt, :, hh, ww] = max_idx_slice[1] # w
-            tmp_argmax[:,:,:, y_root * self.out_ksize + k_indices_h,
-                       x_root * self.out_ksize + k_indices_w] = patch_argmax
+        # vf = numpy.vectorize(slice)
+        # sliceh_mesh = vf(hstart_mesh, hend_mesh)
+        # slicew_mesh = vf(wstart_mesh, wend_mesh)
+
+        # for i in six.moves.range(i_height * i_width):
+        #     y_root = i // i_width
+        #     x_root = i % i_width
+        #     for bt in six.moves.range(batchsize):
+        #         dh = delta_h[:, bt, 0, y_root, x_root]
+        #         sliceh = sliceh_mesh[:, bt, 0, y_root, x_root]
+        #         dw = delta_w[:, bt, 0, y_root, x_root]
+        #         slicew = slicew_mesh[:, bt, 0, y_root, x_root]
+
+        #         for j in six.moves.range(self.out_ksize **2):
+        #             hh = j // self.out_ksize
+        #             ww = j % self.out_ksize
+        #             # get the max idx respect to feature_maps coordinates
+        #             max_idx_slice = numpy.unravel_index(
+        #                 numpy.argmax(
+        #                     x_pad[bt, :,sliceh[hh], slicew[ww]].reshape(channels, -1), axis=1),
+        #                 (dh[hh], dw[ww]))
+        #             patch_argmax[0, bt, :, j] = max_idx_slice[0] # h
+        #             patch_argmax[1, bt, :, j] = max_idx_slice[1] # w
+        #     tmp_argmax[:,:,:, y_root * self.out_ksize + k_indices_h,
+        #                x_root * self.out_ksize + k_indices_w] = \
+        #     patch_argmax.reshape(2, batchsize, channels, self.out_ksize, self.out_ksize)
+
         tmp_argmax[0] += hstart_out
         tmp_argmax[1] += wstart_out
         tmp_argmax -=  kmax_half
