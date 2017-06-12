@@ -6,7 +6,6 @@ from chainer import function
 from chainer.utils import type_check
 from chainer.utils import conv
 
-from chainer import cuda
 import time
 
 class ConvolutionROIPooling(function.Function):
@@ -151,7 +150,6 @@ class ConvolutionROIPooling(function.Function):
 
 
     def forward_gpu(self, inputs):
-        # t = time.time()
         x, ksizes = inputs
         batchsize, channels, i_height, i_width = x.shape
         o_height = self.out_ksize * i_height
@@ -218,106 +216,85 @@ class ConvolutionROIPooling(function.Function):
             'convolutional_roi_pooling_fwd'
         )(x, ksizes, i_height, i_width, channels, self.out_ksize,
           ret_data, self.argmax_data)
-        # print time.time() -t
+
         return ret_data,
 
 
-
-
-    def backward(self, inputs, gy):
-        # tot = time.time()
-        xp = cuda.get_array_module(inputs[0])
+    def backward_cpu(self, inputs, gy):
         x, ksizes = inputs
         batchsize, channels, i_height, i_width = x.shape
+
+        # tot = time.time()
+
         i_imsize = i_height * i_width
         o_imsize = i_imsize * (self.out_ksize ** 2)
-        ret_delta = xp.zeros_like(x.ravel(), dtype=gy[0].dtype)
+        ret_delta = numpy.zeros_like(x.ravel(), dtype=gy[0].dtype)
 
-        max_indices, = xp.where(self.argmax_data.ravel() >= 0)
+        max_indices, = numpy.where(self.argmax_data.ravel() >= 0)
+
         ## indices with offset(minibatch * channel)
         delta_indices = self.argmax_data.ravel()[max_indices] + max_indices // o_imsize * i_imsize
-        ret_delta = xp.bincount(delta_indices, weights=gy[0].ravel()[max_indices]
+        ret_delta = numpy.bincount(delta_indices, weights=gy[0].ravel()[max_indices]
                                    , minlength=len(x.ravel()))
         ret_delta = ret_delta.reshape(x.shape).astype(numpy.float32)
-        # print time.time() -tot
+
+        # ret_delta = numpy.empty_like(x, dtype=gy[0].dtype)
+        # for i_b in six.moves.range(batchsize):
+        #     for i_c in six.moves.range(channels):
+        #         max_indices, = numpy.where(self.argmax_data[i_b, i_c].ravel() >= 0)
+        #         delta_indices = self.argmax_data[i_b, i_c].ravel()[max_indices]
+        #         gy_tmp = gy[0][i_b, i_c].ravel()
+        #         patch_delta = numpy.zeros((i_height * i_width), dtype=gy[0].dtype)
+        #         for ind, max_ind in six.moves.zip(delta_indices, max_indices):
+        #             patch_delta[ind] += gy_tmp[max_ind]
+        #         ret_delta[i_b, i_c] = patch_delta.reshape(i_height, i_width)
+
+        # print "total"
+        # print time.time() - tot
+        # print "----------"
         return ret_delta, None
 
-    # def backward_cpu(self, inputs, gy):
-    #     x, ksizes = inputs
-    #     batchsize, channels, i_height, i_width = x.shape
 
-    #     # tot = time.time()
+    def backward_gpu(self, inputs, gy):
+        x, ksizes = inputs
+        batchsize, channels, i_height, i_width = x.shape
+        ret_delta = cuda.cupy.zeros_like(x, dtype=numpy.float32)
+        kmax_half = int(ksizes.max() // 2)
+        cuda.cupy.ElementwiseKernel(
+            '''
+            raw float32 top_diff, raw int32 argmax_data,
+            int32 in_h, int32 in_w, int32 channels,
+            int32 out_ksize, int32 kmax_half
+            ''',
+            'float32 ret_diff',
+            '''
+            int w = i % in_w;
+            int h = (i / in_w) % in_h;
 
-    #     i_imsize = i_height * i_width
-    #     o_imsize = i_imsize * (self.out_ksize ** 2)
-    #     ret_delta = numpy.zeros_like(x.ravel(), dtype=gy[0].dtype)
+            int out_h = in_h * out_ksize;
+            int out_w = in_w * out_ksize;
+            int data_offset = i / (in_h * in_w) * out_h * out_w;
 
-    #     max_indices, = numpy.where(self.argmax_data.ravel() >= 0)
+            float gradient = 0;
+            int hstart = max((h - kmax_half ) * out_ksize, 0);
+            int hend = min((h + kmax_half + 1) * out_ksize, out_h);
+            int wstart = max((w - kmax_half) * out_ksize, 0);
+            int wend = min((w + kmax_half + 1) *out_ksize, out_w);
 
-    #     ## indices with offset(minibatch * channel)
-    #     delta_indices = self.argmax_data.ravel()[max_indices] + max_indices // o_imsize * i_imsize
-    #     ret_delta = numpy.bincount(delta_indices, weights=gy[0].ravel()[max_indices]
-    #                                , minlength=len(x.ravel()))
-    #     ret_delta = ret_delta.reshape(x.shape).astype(numpy.float32)
-
-    #     # ret_delta = numpy.empty_like(x, dtype=gy[0].dtype)
-    #     # for i_b in six.moves.range(batchsize):
-    #     #     for i_c in six.moves.range(channels):
-    #     #         max_indices, = numpy.where(self.argmax_data[i_b, i_c].ravel() >= 0)
-    #     #         delta_indices = self.argmax_data[i_b, i_c].ravel()[max_indices]
-    #     #         gy_tmp = gy[0][i_b, i_c].ravel()
-    #     #         patch_delta = numpy.zeros((i_height * i_width), dtype=gy[0].dtype)
-    #     #         for ind, max_ind in six.moves.zip(delta_indices, max_indices):
-    #     #             patch_delta[ind] += gy_tmp[max_ind]
-    #     #         ret_delta[i_b, i_c] = patch_delta.reshape(i_height, i_width)
-
-    #     # print "total"
-    #     # print time.time() - tot
-    #     # print "----------"
-    #     return ret_delta, None
-
-
-    # def backward_gpu(self, inputs, gy):
-    #     x, ksizes = inputs
-    #     batchsize, channels, i_height, i_width = x.shape
-    #     ret_delta = cuda.cupy.zeros_like(x, dtype=numpy.float32)
-    #     kmax_half = int(ksizes.max() // 2 + 1)
-    #     cuda.cupy.ElementwiseKernel(
-    #         '''
-    #         raw float32 top_diff, raw int32 argmax_data,
-    #         int32 in_h, int32 in_w, int32 channels,
-    #         int32 out_ksize, int32 kmax_half
-    #         ''',
-    #         'float32 ret_diff',
-    #         '''
-    #         int w = i % in_w;
-    #         int h = (i / in_w) % in_h;
-
-    #         int out_h = in_h * out_ksize;
-    #         int out_w = in_w * out_ksize;
-    #         int data_offset = i / (in_h * in_w) * out_h * out_w;
-
-
-    #         int hstart = max((h - kmax_half ) * out_ksize, 0);
-    #         int hend = min((h + kmax_half + 1) * out_ksize, out_h);
-    #         int wstart = max((w - kmax_half) * out_ksize, 0);
-    #         int wend = min((w + kmax_half + 1) *out_ksize, out_w);
-
-    #         float gradient = 0;
-    #         for(int oh = hstart ; oh < hend ; ++oh){
-    #             for(int ow = wstart ; ow < wend ; ++ow){
-    #                 int index_ = oh * out_w + ow + data_offset;
-    #                 if(argmax_data[index_] == in_w * h + w) {
-    #                     gradient += top_diff[index_];
-    #                 }
-    #             }
-    #         }
-    #         ret_diff = gradient;
-    #         ''', 'convlitional_roi_pooling_bwd'
-    #     )(gy[0], self.argmax_data, i_height, i_width, channels,
-    #       self.out_ksize, kmax_half,
-    #       ret_delta)
-    #     return ret_delta, None
+            for(int oh = hstart ; oh < hend ; ++oh){
+                for(int ow = wstart ; ow < wend ; ++ow){
+                    int index_ = oh * out_w + ow + data_offset;
+                    if(argmax_data[index_] == in_w * h + w) {
+                        gradient += top_diff[index_];
+                    }
+                }
+            }
+            ret_diff = gradient;
+            ''', 'convlitional_roi_pooling_bwd'
+        )(gy[0], self.argmax_data, i_height, i_width, channels,
+          self.out_ksize, kmax_half,
+          ret_delta)
+        return ret_delta, None
 
 
 def convolutional_roi_pooling(x, ksizes, out_ksize=3):
