@@ -256,47 +256,26 @@ class ConvolutionROIPooling(function.Function):
 
 
     def backward_gpu(self, inputs, gy):
+        ## atomicAdd for float64 is not provided, so use float32
         x, ksizes = inputs
-        batchsize, channels, i_height, i_width = x.shape
-        ret_delta = cuda.cupy.zeros_like(x, dtype=numpy.float32)
-        o_width = i_width * self.out_ksize
-        o_height = i_height * self.out_ksize
-        kmax = cuda.cupy.max(ksizes)
+        i_height, i_width = x.shape[2:]
+        ret_delta = cuda.cupy.zeros_like(x, dtype=cuda.cupy.float32)
+        i_imsize = i_height * i_width
+        o_imsize = i_imsize * (self.out_ksize **2)
         cuda.cupy.ElementwiseKernel(
             '''
-            raw float32 top_diff, raw int32 argmax_data,
-            int32 in_h, int32 in_w, int32 channels,
-            int32 out_h, int32 out_w,
-            int32 out_ksize, float32 kmax
+            float32 top_diff, int32 argmax_data,
+            int32 in_imsize, int32 out_imsize
             ''',
-            'float32 ret_diff',
+            'raw float32 ret_diff',
             '''
-            int w = i % in_w;
-            int h = (i / in_w) % in_h;
-            int data_offset = i / (in_h * in_w) * out_h * out_w;
-
-            int kmax_half = kmax / 2;
-
-            int hstart = max((h - kmax_half ) * out_ksize, 0);
-            int hend = min((h + kmax_half + 1) * out_ksize, out_h);
-            int wstart = max((w - kmax_half) * out_ksize, 0);
-            int wend = min((w + kmax_half + 1) *out_ksize, out_w);
-            float gradient = 0;
-
-            for(int oh = hstart ; oh < hend ; ++oh){
-                for(int ow = wstart ; ow < wend ; ++ow){
-                    int index_ = oh * out_w + ow + data_offset;
-                    if(argmax_data[index_] == in_w * h + w) {
-                        gradient += top_diff[index_];
-                    }
-                }
+            if(argmax_data >= 0){
+                atomicAdd(&ret_diff[argmax_data + i / out_imsize * in_imsize], top_diff);
             }
-            ret_diff = gradient;
             ''', 'convlitional_roi_pooling_bwd'
-        )(gy[0], self.argmax_data, i_height, i_width, channels,
-          o_height, o_width,
-          self.out_ksize, kmax,
+        )(gy[0].astype(numpy.float32), self.argmax_data, i_imsize, o_imsize,
           ret_delta)
+        ret_delta = ret_delta.astype(gy[0].dtype)
         return ret_delta, None
 
 
