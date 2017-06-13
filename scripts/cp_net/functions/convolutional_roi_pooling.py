@@ -159,12 +159,11 @@ class ConvolutionROIPooling(function.Function):
         cuda.cupy.ElementwiseKernel(
             '''
             raw float32 in_img, raw float32 ksizes, int32 in_h, int32 in_w,
+            int32 out_h, int32 out_w,
             int32 channels, int32 out_ksize
             ''',
             'float32 ret, int32 argmax_data',
             '''
-            int out_h = in_h * out_ksize;
-            int out_w = in_w * out_ksize;
             int idx_batch = i / (out_h * out_w * channels);
             int o_x = i % out_w;
             int o_y = (i / out_w) % out_h;
@@ -214,7 +213,8 @@ class ConvolutionROIPooling(function.Function):
             argmax_data = maxidx;
             ''',
             'convolutional_roi_pooling_fwd'
-        )(x, ksizes, i_height, i_width, channels, self.out_ksize,
+        )(x, ksizes, i_height, i_width, o_height, o_width,
+          channels, self.out_ksize,
           ret_data, self.argmax_data)
 
         return ret_data,
@@ -259,27 +259,29 @@ class ConvolutionROIPooling(function.Function):
         x, ksizes = inputs
         batchsize, channels, i_height, i_width = x.shape
         ret_delta = cuda.cupy.zeros_like(x, dtype=numpy.float32)
-        kmax_half = int(ksizes.max() // 2)
+        o_width = i_width * self.out_ksize
+        o_height = i_height * self.out_ksize
+        kmax = cuda.cupy.max(ksizes)
         cuda.cupy.ElementwiseKernel(
             '''
             raw float32 top_diff, raw int32 argmax_data,
             int32 in_h, int32 in_w, int32 channels,
-            int32 out_ksize, int32 kmax_half
+            int32 out_h, int32 out_w,
+            int32 out_ksize, float32 kmax
             ''',
             'float32 ret_diff',
             '''
             int w = i % in_w;
             int h = (i / in_w) % in_h;
-
-            int out_h = in_h * out_ksize;
-            int out_w = in_w * out_ksize;
             int data_offset = i / (in_h * in_w) * out_h * out_w;
 
-            float gradient = 0;
+            int kmax_half = kmax / 2;
+
             int hstart = max((h - kmax_half ) * out_ksize, 0);
             int hend = min((h + kmax_half + 1) * out_ksize, out_h);
             int wstart = max((w - kmax_half) * out_ksize, 0);
             int wend = min((w + kmax_half + 1) *out_ksize, out_w);
+            float gradient = 0;
 
             for(int oh = hstart ; oh < hend ; ++oh){
                 for(int ow = wstart ; ow < wend ; ++ow){
@@ -292,7 +294,8 @@ class ConvolutionROIPooling(function.Function):
             ret_diff = gradient;
             ''', 'convlitional_roi_pooling_bwd'
         )(gy[0], self.argmax_data, i_height, i_width, channels,
-          self.out_ksize, kmax_half,
+          o_height, o_width,
+          self.out_ksize, kmax,
           ret_delta)
         return ret_delta, None
 
