@@ -7,40 +7,7 @@ import numpy as np
 import cv2
 import os
 
-def add_noise(src):
-    row,col,ch = src.shape
-    mean = 0
-    sigma = 15
-    gauss = np.random.normal(mean,sigma,(row,col,ch))
-    gauss = gauss.reshape(row,col,ch)
-    gauss_img = src + gauss
-    return gauss_img
-
-def calc_quaternion(rot):
-    quat = np.zeros(4)
-    quat[0] = (rot[0,0] + rot[1,1] + rot[2,2] + 1.0) / 4.0
-    quat[1] = np.sign(rot[2,1] - rot[1,2]) * (rot[0,0] - rot[1,1] - rot[2,2] + 1.0) / 4.0
-    quat[2] = np.sign(rot[0,2] - rot[2,0]) * (-rot[0,0] + rot[1,1] - rot[2,2] + 1.0) / 4.0
-    quat[3] = np.sign(rot[1,0] - rot[0,1]) * (-rot[0,0] - rot[1,1] + rot[2,2] + 1.0) / 4.0
-    return quat
-
-def rpy_param(rot):
-    return np.array([rot[0,0], rot[1,0], rot[2,0], rot[2,1], rot[2,2]])
-
-def calc_rpy(rot, eps=10e-5):
-    # r-p-y eular angle
-    # return array : [tan_x, sin_y, tan_z]
-    #
-    if rot[2,2] != 0 :
-        tan_x = rot[2,1] / rot[2,2]
-    else:
-        tan_x = rot[2,1] / (rot[2,2] + eps)
-    sin_y = - rot[2,0]
-    if rot[0,0] != 0 :
-        tan_z = rot[1,0] / rot[0,0]
-    else:
-        tan_z = rot[1,0] / (rot[0,0] + eps)
-    return np.array([tan_x, sin_y, tan_z])
+import cp_net.utils.preprocess_utils as preprocess_utils
 
 class PreprocessedDataset(dataset.DatasetMixin):
 
@@ -108,7 +75,7 @@ class PreprocessedDataset(dataset.DatasetMixin):
         # pc =  pc[48:432,34:576]
 
         if self.random:
-            img_rgb = add_noise(img_rgb)
+            img_rgb = preprocess_utils.add_noise(img_rgb)
             rand_h = random.randint(0,40)
             rand_w = random.randint(0,40)
             img_rgb = img_rgb[(120+rand_h):(120+192+rand_h), (140+rand_w):(140+256+rand_w)]
@@ -117,7 +84,7 @@ class PreprocessedDataset(dataset.DatasetMixin):
             pc = pc[(120+rand_h):(120+192+rand_h), (140+rand_w):(140+256+rand_w)]
         else:
             img_rgb = img_rgb[140:332,160:416]
-            img_depth = img_depth[140:332,160:416]
+            img_depth = pc[140:332,160:416]
             mask = mask[140:332,160:416]
             pc =  pc[140:332,160:416]
 
@@ -127,21 +94,7 @@ class PreprocessedDataset(dataset.DatasetMixin):
 
         # simple inpaint depth (using opencv function only considering depth, not using rgb)
         img_depth = np.sqrt(np.square(img_depth).sum(axis=2))
-        img_depth_nan_mask = (img_depth != img_depth)
-        depth_max = img_depth[img_depth==img_depth].max()
-        depth_min = img_depth[img_depth==img_depth].min()
-        coeff = 255 /(depth_max - depth_min)
-
-        img_depth_shift = (img_depth - depth_min) * coeff
-        img_depth_shift[img_depth_shift != img_depth_shift] = 0
-        img_depth_shift[img_depth_shift > 255] = 255
-        img_depth_shift[img_depth_shift < 0] = 0
-
-        img_fill = cv2.inpaint(np.round(img_depth_shift).astype(np.uint8), img_depth_nan_mask.astype(np.uint8), 3, cv2.INPAINT_TELEA)
-        img_fill = img_fill.astype(np.float32) / coeff + depth_min
-
-        img_depth[img_depth != img_depth] = 0
-        img_depth = img_fill * img_depth_nan_mask + img_depth * (1 - img_depth_nan_mask)
+        img_depth = preprocess_utils.depth_inpainting(img_depth)
 
         # only consider range 0.5 ~ 2.5[m]
         img_depth = (img_depth - 0.5) / 2.0
@@ -156,7 +109,7 @@ class PreprocessedDataset(dataset.DatasetMixin):
         label = mask * c_i
 
         pc = cv2.resize(pc, img_size).transpose(2,0,1)
-        rot_param = rpy_param(rot)
+        rot_param = preprocess_utils.rpy_param(rot)
 
         mask5 = np.tile(mask.flatten(), 5).reshape(5, mask.shape[0], mask.shape[1])
         rot_map = mask5 * rot_param[:,np.newaxis, np.newaxis]

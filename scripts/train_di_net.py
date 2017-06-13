@@ -19,9 +19,8 @@ import chainer.links.model.vision.resnet as R
 from chainer.training import extensions
 from chainer.links.caffe import CaffeFunction
 
-from cp_net.models.cp_network import CenterProposalNetworkRes50FCN
-from cp_net.cp_classifier import CPNetClassifier
-from cp_net.preprocessed_dataset import PreprocessedDataset
+from cp_net.models.depth_invariant_network import DepthInvariantNetworkRes50FCN
+from cp_net.di_net_dataset import DepthInvariantNetDataset
 
 import argparse
 import os
@@ -45,7 +44,7 @@ def _make_chainermodel_npz(path_npz, path_caffemodel, model, num_class):
     if not os.path.exists(path_caffemodel):
         raise IOError('The pre-trained caffemodel does not exist.')
     caffemodel = CaffeFunction(path_caffemodel)
-    chainermodel = CenterProposalNetworkRes50FCN(n_class=num_class)
+    chainermodel = DepthInvariantNetworkRes50FCN(n_class=num_class)
     _transfer_pretrain_resnet50(caffemodel, chainermodel)
     classifier_model = L.Classifier(chainermodel)
     serializers.save_npz(path_npz, classifier_model, compression=False)
@@ -55,14 +54,14 @@ def _make_chainermodel_npz(path_npz, path_caffemodel, model, num_class):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Fully Convolutional Center Pose Proposal Network for Pose Estimation')
+    parser = argparse.ArgumentParser(description='Fully Convolutional Depth Invariant Network')
     parser.add_argument('--batchsize', '-b', type=int, default=1,
                         help='Number of images in each mini-batch')
     parser.add_argument('--epoch', '-e', type=int, default=200,
                         help='Number of sweeps over the dataset to train')
     parser.add_argument('--gpu', '-g', type=int, default=-1,
                         help='GPU ID (negative value indicates CPU)')
-    parser.add_argument('--out', '-o', default='result',
+    parser.add_argument('--out', '-o', default='di_net_result',
                         help='Directory to output the result')
     parser.add_argument('--resume', '-r', default='',
                         help='Resume the training from snapshot')
@@ -91,8 +90,8 @@ def main():
     caffe_model = 'ResNet-50-model.caffemodel'
 
     
-    model = CPNetClassifier(CenterProposalNetworkRes50FCN(n_class=n_class,
-                                                          pretrained_model= not args.train_resnet))
+    model = L.Classifier(DepthInvariantNetworkRes50FCN(n_class=n_class,
+                                                       pretrained_model= not args.train_resnet))
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
@@ -103,10 +102,10 @@ def main():
     optimizer.setup(model)
 
     # load train data
-    train = PreprocessedDataset(train_path, range(1,n_class), range(0, n_view - 2))
+    train = DepthInvariantNetDataset(train_path, range(1,n_class), range(0, n_view - 2))
     # load test data
-    test = PreprocessedDataset(train_path, range(1,n_class), range(n_view - 2, n_view),
-                               img_size=(256, 192), random=False)
+    test = DepthInvariantNetDataset(train_path, range(1,n_class), range(n_view - 2, n_view),
+                                    img_size=(256, 192), random=False)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
@@ -118,7 +117,7 @@ def main():
 
     # Evaluate the model with the test dataset for each epoch
     evaluator = extensions.Evaluator(test_iter, model, device=args.gpu)
-    evaluator.default_name = 'val'
+    evaluator.default_name = 'validation'
     trainer.extend(evaluator)
 
     # The "main" refers to the target link of the "main" optimizer.
@@ -142,12 +141,8 @@ def main():
         #         'epoch', file_name='accuracy.png'))
 
     trainer.extend(extensions.PrintReport(
-
-        ['epoch',  'main/c_loss',  'main/p_loss', 'main/r_loss',
-         'main/c_acc', 'main/p_acc', 'main/r_acc',
-         'val/main/c_loss',  'val/main/p_loss', 'val/main/r_loss',
-         'val/main/c_acc', 'val/main/p_acc', 'val/main/r_acc',
-         'elapsed_time']))
+        ['epoch',  'main/loss', 'main/accuracy',
+         'validation/main/loss','validation/main/accuracy', 'elapsed_time']))
 
 
     # Print a progress bar to stdout
@@ -158,7 +153,7 @@ def main():
         chainer.serializers.load_npz(args.resume, trainer)
     else:
         root = '..'
-        npz_name = 'CenterProposalNetworkRes50FCN.npz'
+        npz_name = 'DepthInvariantNetworkRes50FCN.npz'
         caffemodel_name = 'ResNet-50-model.caffemodel'
         path = os.path.join(root, 'trained_data/', npz_name)
         path_caffemodel = os.path.join(root, 'trained_data/', caffemodel_name)
@@ -175,4 +170,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
