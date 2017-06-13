@@ -6,7 +6,7 @@ from chainer import function
 from chainer.utils import type_check
 from chainer.utils import conv
 
-import time
+# import time
 
 class ConvolutionROIPooling(function.Function):
     def __init__(self, out_ksize=3, stride=1, pad=-10):
@@ -26,7 +26,7 @@ class ConvolutionROIPooling(function.Function):
         )
 
     def forward_cpu(self, inputs):
-        t = time.time()
+        # t = time.time()
         x, ksizes_half = inputs
         ksizes_half = ksizes_half //2
         batchsize, channels, i_height, i_width = x.shape
@@ -145,7 +145,7 @@ class ConvolutionROIPooling(function.Function):
         ret = numpy.zeros((batchsize, channels, o_height, o_width), dtype=numpy.float32)
         ret[b, c, h, w] = x[b, c, self.argmax_data[b, c, h, w] // i_width,
                             self.argmax_data[b, c, h, w] % i_width]
-        print (time.time() - t)
+        # print (time.time() - t)
         return ret,
 
 
