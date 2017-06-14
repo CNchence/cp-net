@@ -142,7 +142,7 @@ class ConvolutionROIPooling(function.Function):
         self.argmax_data = tmp_argmax[0] * i_width + tmp_argmax[1]
 
         b, c, h, w = numpy.where(self.argmax_data >= 0)
-        ret = numpy.zeros((batchsize, channels, o_height, o_width), dtype=numpy.float32)
+        ret = numpy.zeros((batchsize, channels, o_height, o_width), dtype=x.dtype)
         ret[b, c, h, w] = x[b, c, self.argmax_data[b, c, h, w] // i_width,
                             self.argmax_data[b, c, h, w] % i_width]
         # print (time.time() - t)
@@ -235,7 +235,7 @@ class ConvolutionROIPooling(function.Function):
         delta_indices = self.argmax_data.ravel()[max_indices] + max_indices // o_imsize * i_imsize
         ret_delta = numpy.bincount(delta_indices, weights=gy[0].ravel()[max_indices]
                                    , minlength=len(x.ravel()))
-        ret_delta = ret_delta.reshape(x.shape).astype(numpy.float32)
+        ret_delta = ret_delta.reshape(x.shape).astype(gy[0].dtype)
 
         # ret_delta = numpy.empty_like(x, dtype=gy[0].dtype)
         # for i_b in six.moves.range(batchsize):
