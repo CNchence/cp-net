@@ -29,9 +29,9 @@ class DepthInvariantNetworkRes50FCN(chainer.Chain):
             res4=R.BuildingBlock(6, 512, 256, 1024, 2, **kwargs), # resblock 1/8 -> 1/16
             res5=R.BuildingBlock(3, 1024, 512, 2048, 2, **kwargs), # resblock 1/16 -> 1/32
 
-            upscore1=L.Deconvolution2D(2048, 512, 16, stride=8, pad=4, use_cudnn=False),
-            upscore2=L.Deconvolution2D(1024, 512, 8,stride=4, pad=2, use_cudnn=False),
-            upscore3=L.Deconvolution2D(512, 512, 4, stride=2, pad=1, use_cudnn=False),
+            upscore1=L.Deconvolution2D(2048, 512, 16, stride=8, pad=4),
+            upscore2=L.Deconvolution2D(1024, 512, 8,stride=4, pad=2),
+            upscore3=L.Deconvolution2D(512, 512, 4, stride=2, pad=1),
             
             concat_conv = L.Convolution2D(512*3,  1024, 3, stride=1, pad=1),
 
@@ -43,22 +43,22 @@ class DepthInvariantNetworkRes50FCN(chainer.Chain):
             
             score_pool = L.Convolution2D(512, n_class, 1, stride=1, pad=0),
             upscore_final=L.Deconvolution2D(self.n_class, self.n_class, 8,
-                                            stride=4, pad=2, use_cudnn=False),
+                                            stride=4, pad=2),
         )
 
-    def __call__(self, x1, x2, eps=0.001, test=None):
+    def __call__(self, x1, x2, eps=0.001):
         h = x1
-        ksizes = x2 # focus / depth (focus 1.0 simply)
+        ksizes = x2
 
         h = F.relu(self.bn1(self.conv1(h)))
         h = F.max_pooling_2d(h, 3, stride=2)
         # Res Blocks
-        h = self.res2(h, test=test) # 1/4
-        h = self.res3(h, test=test) # 1/8
+        h = self.res2(h) # 1/4
+        h = self.res3(h) # 1/8
         pool1_8 = h
-        h = self.res4(h, test=test) # 1/16
+        h = self.res4(h) # 1/16
         pool1_16 = h
-        h = self.res5(h, test=test) # 1/32
+        h = self.res5(h) # 1/32
         pool1_32 = h
 
         # upscore 1/32 -> 1/4
