@@ -89,7 +89,8 @@ def main():
     train_path = os.path.join(os.getcwd(), '../train_data/willow_models')
     caffe_model = 'ResNet-50-model.caffemodel'
 
-    
+    chainer.using_config('cudnn_deterministic', True)
+
     model = L.Classifier(DepthInvariantNetworkRes50FCN(n_class=n_class,
                                                        pretrained_model= not args.train_resnet))
 
