@@ -19,9 +19,9 @@ class ConvolutionROIPooling(function.Function):
 
         x_type, ksizes_type = in_types
         type_check.expect(
-            x_type.dtype == numpy.float32,
+            # x_type.dtype == numpy.float32,
             x_type.ndim == 4,
-            ksizes_type.dtype == numpy.float32,
+            # ksizes_type.dtype == numpy.float32,
             # ksizes_type.ndim == 4,
         )
 
@@ -142,7 +142,7 @@ class ConvolutionROIPooling(function.Function):
         self.argmax_data = tmp_argmax[0] * i_width + tmp_argmax[1]
 
         b, c, h, w = numpy.where(self.argmax_data >= 0)
-        ret = numpy.zeros((batchsize, channels, o_height, o_width), dtype=numpy.float32)
+        ret = numpy.zeros((batchsize, channels, o_height, o_width), dtype=x.dtype)
         ret[b, c, h, w] = x[b, c, self.argmax_data[b, c, h, w] // i_width,
                             self.argmax_data[b, c, h, w] % i_width]
         # print (time.time() - t)
@@ -154,15 +154,15 @@ class ConvolutionROIPooling(function.Function):
         batchsize, channels, i_height, i_width = x.shape
         o_height = self.out_ksize * i_height
         o_width = self.out_ksize * i_width
-        ret_data = cuda.cupy.empty((batchsize, channels, o_height, o_width), dtype=x.dtype)
-        self.argmax_data = cuda.cupy.empty_like(ret_data, numpy.int32)
+        ret_data = cuda.cupy.empty((batchsize, channels, o_height, o_width), dtype=numpy.float64)
+        self.argmax_data = cuda.cupy.empty_like(ret_data, dtype=numpy.int32)
         cuda.cupy.ElementwiseKernel(
             '''
-            raw float32 in_img, raw float32 ksizes, int32 in_h, int32 in_w,
-            int32 out_h, int32 out_w,
+            raw float64 in_img, raw T ksizes,
+            int32 in_h, int32 in_w, int32 out_h, int32 out_w,
             int32 channels, int32 out_ksize
             ''',
-            'float32 ret, int32 argmax_data',
+            'float64 ret, int32 argmax_data',
             '''
             int idx_batch = i / (out_h * out_w * channels);
             int o_x = i % out_w;
@@ -173,39 +173,38 @@ class ConvolutionROIPooling(function.Function):
             int x_root_mod = o_x % out_ksize;
             int y_root_mod = o_y % out_ksize;
 
-            int ksize = ksizes[idx_batch * in_h * in_w + y_root * in_w + x_root];
-            int ksize_half = max(ksize, 1) / 2;
+            int ksize_half = ksizes[idx_batch * in_h * in_w + y_root * in_w + x_root];
+            ksize_half >>= 1;
 
             int ymin = y_root - ksize_half;
             int xmin = x_root - ksize_half;
 
-            float bin_size = static_cast<float>(ksize_half * 2 + 1)
+            float bin_size = static_cast<float>(ksize_half << 1 + 1)
                                    / static_cast<float>(out_ksize);
 
-            int hstart = static_cast<int>(floor(y_root_mod * bin_size));
-            int wstart = static_cast<int>(floor(x_root_mod * bin_size));
-            int hend = static_cast<int>(ceil((y_root_mod + 1) * bin_size));
-            int wend = static_cast<int>(ceil((x_root_mod + 1) * bin_size));
-
             // Add roi offsets and clip to input boundaries
-            hstart = min(max(hstart + ymin, 0), in_h);
-            hend = min(max(hend + ymin, 0), in_h);
-            wstart = min(max(wstart + xmin, 0), in_w);
-            wend = min(max(wend + xmin, 0), in_w);
+            int hstart = min(max(static_cast<int>(floor(y_root_mod * bin_size))
+                                                                  + ymin, 0), in_h);
+            int hend = min(max(static_cast<int>(ceil((y_root_mod + 1) * bin_size))
+                                                                  + ymin, 0), in_h);
+            int wstart = min(max(static_cast<int>(floor(x_root_mod * bin_size))
+                                                                  + xmin, 0), in_w);
+            int wend = min(max(static_cast<int>(ceil((x_root_mod + 1) * bin_size))
+                                                                  + xmin, 0), in_w);
 
             bool is_empty = (hend <= hstart) || (wend <= wstart);
 
             // Define an empty pooling region to be zero
-            float maxval = is_empty ? 0 : -1E+37;
+            double maxval = is_empty ? 0 : -1E+37;
             // If nothing is pooled, argmax=-1 causes nothing to be backprop'd
             int maxidx = -1;
-            int data_offset = i / (out_h * out_w) * in_h * in_w;
             for (int h = hstart; h < hend; ++h){
                 for (int w = wstart; w < wend; ++w) {
+                    int data_offset = i / (out_h * out_w) * in_h * in_w;
                     int root_idx = h * in_w + w;
                     if (in_img[data_offset + root_idx] > maxval){
-                        maxval = in_img[data_offset + root_idx];
-                        maxidx = root_idx;
+                         int maxval = static_cast<double>(in_img[data_offset + root_idx]);
+                         int maxidx = root_idx;
                     }
                 }
             }
@@ -213,10 +212,10 @@ class ConvolutionROIPooling(function.Function):
             argmax_data = maxidx;
             ''',
             'convolutional_roi_pooling_fwd'
-        )(x, ksizes, i_height, i_width, o_height, o_width,
-          channels, self.out_ksize,
+        )(x.astype(numpy.float64), ksizes,
+          i_height, i_width, o_width, o_height, channels, self.out_ksize,
           ret_data, self.argmax_data)
-
+        ret_data = ret_data.astype(x.dtype)
         return ret_data,
 
 
@@ -236,7 +235,7 @@ class ConvolutionROIPooling(function.Function):
         delta_indices = self.argmax_data.ravel()[max_indices] + max_indices // o_imsize * i_imsize
         ret_delta = numpy.bincount(delta_indices, weights=gy[0].ravel()[max_indices]
                                    , minlength=len(x.ravel()))
-        ret_delta = ret_delta.reshape(x.shape).astype(numpy.float32)
+        ret_delta = ret_delta.reshape(x.shape).astype(gy[0].dtype)
 
         # ret_delta = numpy.empty_like(x, dtype=gy[0].dtype)
         # for i_b in six.moves.range(batchsize):
@@ -257,7 +256,7 @@ class ConvolutionROIPooling(function.Function):
 
     def backward_gpu(self, inputs, gy):
         ## atomicAdd for float64 is not provided, so use float32
-        x, ksizes = inputs
+        x = inputs[0]
         i_height, i_width = x.shape[2:]
         ret_delta = cuda.cupy.zeros_like(x, dtype=cuda.cupy.float32)
         i_imsize = i_height * i_width
