@@ -106,7 +106,7 @@ def main():
     train = DepthInvariantNetDataset(train_path, range(1,n_class), range(0, n_view - 2))
     # load test data
     test = DepthInvariantNetDataset(train_path, range(1,n_class), range(n_view - 2, n_view),
-                                    img_size=(256, 192), random=False)
+                                    img_size=(256, 192), random=False, random_flip=False)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,

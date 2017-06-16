@@ -12,7 +12,8 @@ import cp_net.utils.preprocess_utils as preprocess_utils
 
 class DepthInvariantNetDataset(dataset.DatasetMixin):
 
-    def __init__(self, path, class_indices, view_indices, img_size=(256, 192), random=True):
+    def __init__(self, path, class_indices, view_indices, img_size=(256, 192),
+                 random=True, random_flip=True, random_ratio=False):
         self.base = path
         self.n_class = len(class_indices)
         self.n_view = len(view_indices)
@@ -21,6 +22,7 @@ class DepthInvariantNetDataset(dataset.DatasetMixin):
         self.img_size = img_size
         # self.mean = mean.astype('f')
         self.random = random
+        self.random_flip = random_flip
 
     def __len__(self):
         return self.n_class * self.n_view
@@ -106,5 +108,14 @@ class DepthInvariantNetDataset(dataset.DatasetMixin):
         mask = mask.transpose(2,0,1)[0] / 255.0  # Scale to [0, 1];
         mask = cv2.resize(mask, img_size)
         label = mask * c_i
+
+        ## random flip images
+        if self.random_flip:
+            rand_flip = random.randint(0,1)
+            if rand_flip:
+                img_rgb = img_rgb[:,:,::-1]
+                ksizes = ksizes[:,:,::-1]
+                img_depth =  img_depth[:,:,::-1]
+                label = label[:,::-1]
 
         return img_rgb, ksizes.astype(np.float32), label.astype(np.int32)
