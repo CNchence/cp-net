@@ -34,19 +34,20 @@ class DepthInvariantNetworkRes50FCNVer2(chainer.Chain):
             bn_upscore = L.BatchNormalization(512 * 2 + 256),
 
             concat_conv = L.Convolution2D(512*2 + 256,  1024, 3, stride=1, pad=1),
+            bn_concat = L.BatchNormalization(1024),
 
             pool_roi_conv =  L.Convolution2D(1024, 1024, 5, stride=5, pad=0),
-            conv_after_croip = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
-
+            conv_after_croip1 = L.Convolution2D(1024, 512, 1, stride=1, pad=0),
+            conv_after_croip2 = L.Convolution2D(512, 512, 1, stride=1, pad=0),
+            
             bn_croip1 = L.BatchNormalization(1024),
             bn_croip2 = L.BatchNormalization(512),
+            bn_croip3 = L.BatchNormalization(512),
             
-            score_pool = L.Convolution2D(512, n_class, 1, stride=1, pad=0),
-            upscore_final=L.Deconvolution2D(self.n_class, self.n_class, 8,
-                                            stride=4, pad=2),
+            score_conv = L.Convolution2D(512, n_class, 1, stride=1, pad=0),
         )
 
-    def __call__(self, x1, x2, eps=0.001):
+    def __call__(self, x1, x2):
         h = x1
         ksizes = x2
 
@@ -65,17 +66,16 @@ class DepthInvariantNetworkRes50FCNVer2(chainer.Chain):
 
         # concat 1 / 4
         h = F.leaky_relu(self.bn_upscore(concat.concat((h, pool1_8, pool1_4), axis=1)))
-        h = F.relu(self.concat_conv(h))
+        h = F.relu(self.bn_concat(self.concat_conv(h)))
 
         ksizes = F.ceil(F.resize_images((ksizes * 3), (h.data.shape[2], h.data.shape[3])))
         h = convolutional_roi_pooling(h, ksizes, out_ksize=5)
         h = F.relu(self.bn_croip1(self.pool_roi_conv(h)))
+        h = F.relu(self.bn_croip2(self.conv_after_croip1(h)))
+        h = F.relu(self.bn_croip3(self.conv_after_croip2(h)))
 
-        h = F.relu(self.bn_croip2(self.conv_after_croip(h)))
-
-        # score
-        h = F.relu(self.score_pool(h))
-        h = F.relu(self.upscore_final(h))
-        score = h  # 1/1
+        # score #1 / 4
+        h = F.relu(self.score_conv(h))
+        score = h  # 1/4
 
         return score
