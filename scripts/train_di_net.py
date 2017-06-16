@@ -122,9 +122,16 @@ def main():
     test = DepthInvariantNetDataset(train_path, range(1,n_class), range(n_view - 2, n_view),
                                     img_size=(256, 192), random=False, random_flip=False)
 
+    test_resized = DepthInvariantNetDataset(train_path, range(1,n_class),
+                                            range(n_view - 2, n_view),
+                                            img_size=(256, 192), random=False,
+                                            random_flip=False, random_resize=True)
+
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
                                                  repeat=False, shuffle=False)
+    test_resized_iter = chainer.iterators.SerialIterator(test_resized, args.batchsize,
+                                                         repeat=False, shuffle=False)
 
     updater = training.StandardUpdater(train_iter, optimizer, device=args.gpu)
     trainer = training.Trainer(updater, (args.epoch, 'epoch'), out=args.out)
@@ -132,8 +139,12 @@ def main():
 
     # Evaluate the model with the test dataset for each epoch
     evaluator = extensions.Evaluator(test_iter, model, device=args.gpu)
-    evaluator.default_name = 'validation'
+    evaluator.default_name = 'val'
     trainer.extend(evaluator)
+
+    evaluator_resized = extensions.Evaluator(test_resized_iter, model, device=args.gpu)
+    evaluator_resized.default_name = 'resized_val'
+    trainer.extend(evaluator_resized)
 
     # The "main" refers to the target link of the "main" optimizer.
     trainer.extend(extensions.dump_graph('main/loss'))
@@ -157,7 +168,9 @@ def main():
 
     trainer.extend(extensions.PrintReport(
         ['epoch',  'main/loss', 'main/accuracy',
-         'validation/main/loss','validation/main/accuracy', 'elapsed_time']))
+         'val/main/loss','val/main/accuracy',
+         'resized_val/main/loss','resized_val/main/accuracy',
+         'elapsed_time']))
 
 
     # Print a progress bar to stdout
