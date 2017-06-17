@@ -117,7 +117,8 @@ def main():
     optimizer.setup(model)
 
     # load train data
-    train = DepthInvariantNetDataset(train_path, range(1,n_class), range(0, n_view - 2))
+    train = DepthInvariantNetDataset(train_path, range(1,n_class), range(0, n_view - 2),
+                                     random_resize=True, resize_train=True)
     # load test data
     test = DepthInvariantNetDataset(train_path, range(1,n_class), range(n_view - 2, n_view),
                                     img_size=(256, 192), random=False, random_flip=False)
@@ -125,7 +126,8 @@ def main():
     test_resized = DepthInvariantNetDataset(train_path, range(1,n_class),
                                             range(n_view - 2, n_view),
                                             img_size=(256, 192), random=False,
-                                            random_flip=False, random_resize=True)
+                                            random_flip=False, random_resize=True,
+                                            force_resize=True)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,

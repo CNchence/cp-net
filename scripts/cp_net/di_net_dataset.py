@@ -13,7 +13,8 @@ import cp_net.utils.preprocess_utils as preprocess_utils
 class DepthInvariantNetDataset(dataset.DatasetMixin):
 
     def __init__(self, path, class_indices, view_indices, img_size=(256, 192),
-                 random=True, random_flip=True, random_resize=False, out_size=0.25):
+                 random=True, random_flip=True, random_resize=False, out_size=0.25,
+                 resize_train=False, force_resize=False):
         self.base = path
         self.n_class = len(class_indices)
         self.n_view = len(view_indices)
@@ -25,6 +26,8 @@ class DepthInvariantNetDataset(dataset.DatasetMixin):
         self.random_flip = random_flip
         self.random_resize = random_resize
         self.out_size = 0.25
+        self.resize_train = resize_train
+        self.force_resize = force_resize
 
     def __len__(self):
         return self.n_class * self.n_view
@@ -115,43 +118,53 @@ class DepthInvariantNetDataset(dataset.DatasetMixin):
 
         # random resizing
         if self.random_resize:
-            resize_ratio = random.uniform(0.5, 1.5)
-            resized_imsize = (int(img_size[0] * resize_ratio),
-                              int(img_size[1] * resize_ratio))
+            if self.force_resize or random.randint(0,1):
+                resize_ratio = random.uniform(0.5, 1.5)
+                resized_imsize = (int(img_size[0] * resize_ratio),
+                                  int(img_size[1] * resize_ratio))
 
-            if resize_ratio < 1.0:
-                clop_h = random.randint(0, img_size[1] - resized_imsize[1])
-                clop_w = random.randint(0, img_size[0] - resized_imsize[0])
+                if resize_ratio < 1.0:
+                    if self.resize_train:
+                        resize_ratio = 0.5
+                    else:
+                        resize_ratio = 0.75
+                    clop_h = random.randint(0, img_size[1] - resized_imsize[1])
+                    clop_w = random.randint(0, img_size[0] - resized_imsize[0])
 
-                img_rgb = img_rgb[clop_h:(clop_h + resized_imsize[1]),
-                                  clop_w:(clop_w + resized_imsize[0]), :]
-                img_rgb = cv2.resize(img_rgb, img_size)
+                    img_rgb = img_rgb[clop_h:(clop_h + resized_imsize[1]),
+                                      clop_w:(clop_w + resized_imsize[0]), :]
+                    img_rgb = cv2.resize(img_rgb, img_size)
 
-                ksizes = ksizes[clop_h:(clop_h + resized_imsize[1]),
+                    ksizes = ksizes[clop_h:(clop_h + resized_imsize[1]),
+                                    clop_w:(clop_w + resized_imsize[0])]
+                    ksizes = cv2.resize(ksizes, img_size)
+
+                    mask = mask[clop_h:(clop_h + resized_imsize[1]),
                                 clop_w:(clop_w + resized_imsize[0])]
-                ksizes = cv2.resize(ksizes, img_size)
+                    mask = cv2.resize(mask, img_size)
 
-                mask = mask[clop_h:(clop_h + resized_imsize[1]),
-                                  clop_w:(clop_w + resized_imsize[0])]
-                mask = cv2.resize(mask, img_size)
+                elif resize_ratio > 1.0:
+                    if resize_ratio < 1.0:
+                        if self.resize_train:
+                            resize_ratio = 1.5
+                        else:
+                            resize_ratio = 1.25
+                        clop_h = random.randint(0, resized_imsize[1] - img_size[1])
+                        clop_w = random.randint(0, resized_imsize[0] - img_size[0])
 
-            elif resize_ratio > 1.0:
-                clop_h = random.randint(0, resized_imsize[1] - img_size[1])
-                clop_w = random.randint(0, resized_imsize[0] - img_size[0])
+                        img_rgb = cv2.resize(img_rgb, resized_imsize)
+                        img_rgb = img_rgb[clop_h:(clop_h + img_size[1]),
+                                          clop_w:(clop_w + img_size[0]), :]
 
-                img_rgb = cv2.resize(img_rgb, resized_imsize)
-                img_rgb = img_rgb[clop_h:(clop_h + img_size[1]),
-                                  clop_w:(clop_w + img_size[0]), :]
+                        ksizes = cv2.resize(ksizes, resized_imsize)
+                        ksizes = ksizes[clop_h:(clop_h + img_size[1]),
+                                        clop_w:(clop_w + img_size[0])]
 
-                ksizes = cv2.resize(ksizes, resized_imsize)
-                ksizes = ksizes[clop_h:(clop_h + img_size[1]),
-                                clop_w:(clop_w + img_size[0])]
+                        mask = cv2.resize(mask, resized_imsize)
+                        mask = mask[clop_h:(clop_h + img_size[1]),
+                                    clop_w:(clop_w + img_size[0])]
 
-                mask = cv2.resize(mask, resized_imsize)
-                mask = mask[clop_h:(clop_h + img_size[1]),
-                            clop_w:(clop_w + img_size[0])]
-
-            ksizes = ksizes * resize_ratio
+                ksizes = ksizes * resize_ratio
 
         # create 1 / 4 label mask
         imsize_resizeh = int(img_size[0] * self.out_size)

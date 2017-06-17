@@ -68,7 +68,7 @@ class DepthInvariantNetworkRes50FCNVer2(chainer.Chain):
         h = F.leaky_relu(self.bn_upscore(concat.concat((h, pool1_8, pool1_4), axis=1)))
         h = F.relu(self.bn_concat(self.concat_conv(h)))
 
-        ksizes = F.ceil(F.resize_images((ksizes * 3), (h.data.shape[2], h.data.shape[3])))
+        ksizes = F.ceil(F.resize_images((ksizes * 5), (h.data.shape[2], h.data.shape[3])))
         h = convolutional_roi_pooling(h, ksizes, out_ksize=5)
         h = F.relu(self.bn_croip1(self.pool_roi_conv(h)))
         h = F.relu(self.bn_croip2(self.conv_after_croip1(h)))
