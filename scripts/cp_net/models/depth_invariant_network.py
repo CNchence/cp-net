@@ -32,7 +32,9 @@ class DepthInvariantNetworkRes50FCN(chainer.Chain):
             upscore1=L.Deconvolution2D(2048, 512, 16, stride=8, pad=4),
             upscore2=L.Deconvolution2D(1024, 512, 8,stride=4, pad=2),
             upscore3=L.Deconvolution2D(512, 512, 4, stride=2, pad=1),
-            
+
+            bn_upscore = L.BatchNormalization(512 * 3),
+
             concat_conv = L.Convolution2D(512*3,  1024, 3, stride=1, pad=1),
 
             pool_roi_conv =  L.Convolution2D(1024, 1024, 5, stride=5, pad=0),
@@ -69,7 +71,7 @@ class DepthInvariantNetworkRes50FCN(chainer.Chain):
         pool1_8 = self.upscore3(pool1_8)
 
         # concat 1 / 4
-        h = concat.concat((pool1_32, pool1_16, pool1_8), axis=1)
+        h = F.leaky_relu(self.bn_upscore(concat.concat((pool1_32, pool1_16, pool1_8), axis=1)))
         h = F.relu(self.concat_conv(h))
 
         ksizes = F.ceil(F.resize_images((ksizes * 3), (h.data.shape[2], h.data.shape[3])))
@@ -80,7 +82,6 @@ class DepthInvariantNetworkRes50FCN(chainer.Chain):
 
         # score
         h = F.relu(self.score_pool(h))
-        score1_8 = h
         h = F.relu(self.upscore_final(h))
         score = h  # 1/1
 
