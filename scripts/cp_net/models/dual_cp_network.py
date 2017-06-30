@@ -28,49 +28,38 @@ class DualCenterProposalNetworkRes50FCN(chainer.Chain):
             res5=R.BuildingBlock(3, 1024, 512, 2048, 2, **kwargs),
 
             upscore32=L.Deconvolution2D(2048, 512, 8, stride=4, pad=2),
+            bn_up32 = L.BatchNormalization(512),
             upscore16=L.Deconvolution2D(1024, 512, 4, stride=2, pad=1),
+            bn_up16 = L.BatchNormalization(512),
 
             concat_conv = L.Convolution2D(512 * 3, 512 * 3, 3, stride=1, pad=1),
+            bn_concat = L.BatchNormalization(512 * 3),
 
             score_pool = L.Convolution2D(512 * 3, n_class, 1, stride=1, pad=0),
-            cls_pool = L.Convolution2D(512 * 3, 128, 1, stride=1, pad=0),
 
             upscore_final=L.Deconvolution2D(self.n_class, self.n_class, 16, stride=8, pad=4),
 
-            # depth network
-            conv_d1_1 = L.Convolution2D(1, 64, 3, stride=1, pad=1),
-            bn_d1_1 = L.BatchNormalization(64),
-            conv_d1_2 = L.Convolution2D(64, 64, 3, stride=1, pad=1),
-            bn_d1_2 = L.BatchNormalization(64),
-
-            conv_d2 = L.Convolution2D(64, 128, 3, stride=1, pad=1),
-            bn_d2 = L.BatchNormalization(128),
-            conv_d3 = L.Convolution2D(128, 256, 3, stride=1, pad=1),
-            bn_d3 = L.BatchNormalization(256),
-
             # center pose network
-            conv_cp1 = L.Convolution2D(256 + 512 + 128, 1024, 3, stride=1, pad=1),
+            conv_cp1 = L.Convolution2D(512 * 3, 1024, 3, stride=1, pad=1),
             bn_cp1 = L.BatchNormalization(1024),
-            conv_cp2 = L.Convolution2D(1024, 1024, 3, stride=1, pad=1),
-            bn_cp2 = L.BatchNormalization(1024),
-            upscore_cp1 = L.Deconvolution2D(1024, 512, 8, stride=4, pad=2),
-            bn_cp3 = L.BatchNormalization(512),
-            upscore_cp2 = L.Deconvolution2D(512, 3, 4, stride=2, pad=1),
+            conv_cp2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
+            bn_cp2 = L.BatchNormalization(512),
+            upscore_cp1 = L.Deconvolution2D(512, 3, 8, stride=4, pad=2),
+            bn_cp3 = L.BatchNormalization(3),
+            upscore_cp2 = L.Deconvolution2D(3, 3, 4, stride=2, pad=1),
 
             # origin center pose network
-            conv_ocp1 = L.Convolution2D(256 + 512 + 128, 1024, 3, stride=1, pad=1),
+            conv_ocp1 = L.Convolution2D(512 * 3, 1024, 3, stride=1, pad=1),
             bn_ocp1 = L.BatchNormalization(1024),
-            conv_ocp2 = L.Convolution2D(1024, 1024, 3, stride=1, pad=1),
-            bn_ocp2 = L.BatchNormalization(1024),
-            upscore_ocp1 = L.Deconvolution2D(1024, 512, 8, stride=4, pad=2),
-            bn_ocp3 = L.BatchNormalization(512),
-            upscore_ocp2 = L.Deconvolution2D(512, 3, 4, stride=2, pad=1),
+            conv_ocp2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
+            bn_ocp2 = L.BatchNormalization(512),
+            upscore_ocp1 = L.Deconvolution2D(512, 3, 8, stride=4, pad=2),
+            bn_ocp3 = L.BatchNormalization(3),
+            upscore_ocp2 = L.Deconvolution2D(3, 3, 4, stride=2, pad=1),
         )
 
-    def __call__(self, x1, x2,  eps=0.001, test=None):
+    def __call__(self, x1, eps=0.001, test=None):
         h = x1
-        h_d = x2
-
         h = F.relu(self.bn1(self.conv1(h)))
         h = F.max_pooling_2d(h, 3, stride=2)
         # Res Blocks
@@ -80,49 +69,33 @@ class DualCenterProposalNetworkRes50FCN(chainer.Chain):
         h = self.res4(h) # 1/16
         pool1_16 = h
         h = self.res5(h) # 1/32
-        pool1_32 = h
 
-        # upscore 1/32 -> 1/1
-        h = self.upscore32(pool1_32)
-        upscore1 = h  # 1/1
+        # upscore 1/32 -> 1/8
+        h = F.elu(self.bn_up32(self.upscore32(h)))
+        upscore1 = h  # 1/8
 
-        # upscore 1/16 -> 1/1
-        h = self.upscore16(pool1_16)
-        upscore2 = h  # 1/1
+        # upscore 1/16 -> 1/8
+        upscore2 = F.elu(self.bn_up16(self.upscore16(pool1_16)))
 
         # concat conv
         h = concat.concat((upscore1, upscore2, pool1_8), axis=1)
-        h = F.relu(self.concat_conv(h))
+        h = F.relu(self.bn_concat(self.concat_conv(h)))
         concat_pool = h
 
          # score
-        h = F.relu(self.score_pool(concat_pool))
+        h = F.elu(self.score_pool(concat_pool))
         score1_8 = h
         h = F.relu(self.upscore_final(h))
         score = h  # 1/1
-        self.score = score  # XXX: for backward compatibility
 
-        h = F.relu(self.cls_pool(concat_pool))
-        cls_pool1_8 = h
-
-        h_d = F.relu(self.bn_d1_1(self.conv_d1_1(h_d)))
-        h_d = F.relu(self.bn_d1_2(self.conv_d1_2(h_d)))
-        h_d = F.max_pooling_2d(h_d, 2, stride=2, pad=0) # 1/2
-        h_d = F.relu(self.bn_d2(self.conv_d2(h_d)))
-        h_d = F.max_pooling_2d(h_d, 2, stride=2, pad=0) # 1/4
-        h_d = F.relu(self.bn_d3(self.conv_d3(h_d)))
-        h_d = F.max_pooling_2d(h_d, 2, stride=2, pad=0) # 1/8
-
-        h_cp = concat.concat((h_d, pool1_8, cls_pool1_8), axis=1)
-        h_cp = F.relu(self.bn_cp1(self.conv_cp1(h_cp)))
+        h_cp = F.relu(self.bn_cp1(self.conv_cp1(concat_pool)))
         h_cp = F.relu(self.bn_cp2(self.conv_cp2(h_cp)))
-        h_cp = F.relu(self.bn_cp3(self.upscore_cp1(h_cp)))
+        h_cp = F.elu(self.bn_cp3(self.upscore_cp1(h_cp)))
         cp_score = F.arctan(self.upscore_cp2(h_cp))
 
-        h_ocp = concat.concat((h_d, pool1_8, cls_pool1_8), axis=1)
-        h_ocp = F.relu(self.bn_ocp1(self.conv_ocp1(h_ocp)))
+        h_ocp = F.relu(self.bn_ocp1(self.conv_ocp1(concat_pool)))
         h_ocp = F.relu(self.bn_ocp2(self.conv_ocp2(h_ocp)))
-        h_ocp = F.relu(self.bn_ocp3(self.upscore_ocp1(h_ocp)))
-        orig_cp_score = F.arctan(self.upscore_ocp2(h_ocp))
+        h_ocp = F.elu(self.bn_ocp3(self.upscore_ocp1(h_ocp)))
+        ocp_score = F.arctan(self.upscore_ocp2(h_ocp))
 
-        return score, cp_score, orig_cp_score
+        return score, cp_score, ocp_score

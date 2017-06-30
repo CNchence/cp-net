@@ -36,7 +36,7 @@ class DualCPNetClassifier(link.Chain):
         y_cls, y_cp, y_ocp = self.y
         self.cls_loss = F.softmax_cross_entropy(y_cls, t_cls)
         self.cp_loss = mask_mean_squared_error(y_cp, t_cp, nonnan_mask)
-        self.ocp_loss = mask_mean_squared_error(y_cp, t_ocp, nonnan_mask)
+        self.ocp_loss = mask_mean_squared_error(y_ocp, t_ocp, nonnan_mask)
         self.loss = self.cls_loss + self.cp_loss + self.ocp_loss
         reporter.report({'cls_loss': self.cls_loss}, self)
         reporter.report({'cp_loss': self.cp_loss}, self)
@@ -45,7 +45,7 @@ class DualCPNetClassifier(link.Chain):
         if self.compute_accuracy:
             self.class_acc = F.accuracy(y_cls, t_cls)
             self.cp_acc, self.ocp_acc = \
-                dual_cp_accuracy.dual_cp_accuracy(y_cls, y_cp, y_ocp, cp, ocp, t_pc, eps=0)
+                dual_cp_accuracy.dual_cp_accuracy(y_cls, y_cp, y_ocp, cp, ocp, t_pc, eps=0.5)
             reporter.report({'cls_acc': self.class_acc}, self)
             reporter.report({'cp_acc': self.cp_acc}, self)
             reporter.report({'ocp_acc': self.ocp_acc}, self)

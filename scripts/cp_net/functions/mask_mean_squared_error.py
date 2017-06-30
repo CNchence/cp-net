@@ -20,20 +20,22 @@ class MaskMeanSquaredError(function.Function):
 
     def forward_cpu(self, inputs):
         x0, x1, mask = inputs
-        self.mask = mask
+        self.mask = mask[:,numpy.newaxis,:,:]
         self.diff = (x0 - x1) * self.mask
         diff = self.diff.ravel()
-        return numpy.array(diff.dot(diff) / diff.size, dtype=diff.dtype),
+        self.non_zero_size = self.diff.size - self.diff[self.diff == 0].size
+        return numpy.array(diff.dot(diff) / self.non_zero_size, dtype=diff.dtype),
 
     def forward_gpu(self, inputs):
         x0, x1, mask = inputs
-        self.mask = mask
+        self.mask = mask[:,numpy.newaxis,:,:]
         self.diff = (x0 - x1) * self.mask
         diff = self.diff.ravel()
-        return diff.dot(diff) / diff.dtype.type(diff.size),
+        self.non_zero_size = self.diff.size - self.diff[self.diff == 0].size
+        return diff.dot(diff) / diff.dtype.type(self.non_zero_size),
 
     def backward(self, inputs, gy):
-        coeff = gy[0] * gy[0].dtype.type(2. / self.diff.size)
+        coeff = gy[0] * gy[0].dtype.type(2. / self.non_zero_size)
         gx0 = (coeff * self.diff) * self.mask
         return gx0, -gx0, -gx0
 

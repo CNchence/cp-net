@@ -13,7 +13,7 @@ import cp_net.utils.preprocess_utils as preprocess_utils
 class DualCPNetDataset(dataset.DatasetMixin):
 
     def __init__(self, path, class_indices, view_indices, img_size=(256, 192),
-                 random=True, random_flip=True, random_ratio=False):
+                 random=True, random_flip=False, random_ratio=False):
         self.base = path
         self.n_class = len(class_indices)
         self.n_view = len(view_indices)
@@ -77,21 +77,27 @@ class DualCPNetDataset(dataset.DatasetMixin):
         mask = cv2.resize(mask, img_size)
         label = mask * c_i
 
-        pc = pc.transpose(2,0,1)
-        pc_nonnan = pc
-        pc_nonnan[pc_nonnan != pc_nonnan] = 0
-        img_cp = pos[:, np.newaxis, np.newaxis] - pc_nonnan
+        cpos = pos.astype(np.float32)
+        cpos = np.array([pos[2], -pos[0], -pos[1]])
+        ocpos = cpos
+
+        pc = cv2.resize(pc, img_size).transpose(2,0,1)
+        img_cp = cpos[:, np.newaxis, np.newaxis] - pc
+        img_cp[img_cp != img_cp] = 0
         img_cp = img_cp.astype(np.float32)
         img_ocp = img_cp
 
-        pos = pos.astype(np.float32)
-        opos = pos
-
         ## nonnan label mask
         ## nan and bg is 0, object = 1
-        nonnan_mask = pc_nonnan[0]
-        nonnan_mask[nonnan_mask != 0] = 1
-        nonnan_mask  = (nonnan_mask * mask).astype(np.float32)
+        nonnan_mask  = (np.invert(np.isnan(pc))[0] * mask).astype(np.float32)
+
+        pc_nonnan = pc
+        pc_nonnan[pc_nonnan != pc_nonnan] = 0
+        # print "============"
+        # print np.max(((img_cp + pc_nonnan) * nonnan_mask).reshape(3,-1), axis=1)
+        # print np.min(((img_cp + pc_nonnan) * nonnan_mask).reshape(3,-1), axis=1)
+        # print np.max(pc_nonnan.reshape(3,-1), axis=1)
+        # print np.min(pc_nonnan.reshape(3,-1), axis=1)
 
         ## random flip images
         if self.random_flip:
@@ -101,14 +107,13 @@ class DualCPNetDataset(dataset.DatasetMixin):
                 img_depth =  img_depth[:,:,::-1]
                 label = label[:,::-1]
                 img_cp = img_cp[:,:,::-1]
-                img_cp[1] *= -1.0  # flip y
+                img_cp[1] *= -1.0  # reverse horizon
                 img_ocp[:,:,::-1]
-                img_cp[1] *= -1.0  # flip y
-                pos[1] *= -1.0
-                opos[1] *= -1.0
+                img_cp[1] *= -1.0
+                cpos[1] *= -1.0
+                ocpos[1] *= -1.0
                 pc[:,:,::-1]
-                pc[1] *= -1.0  # flip y
+                pc[1] *= -1.0
                 nonnan_mask = nonnan_mask[:,::-1]
 
-        return img_rgb, img_depth, label.astype(np.int32), \
-            img_cp, img_ocp, pos, opos, pc, nonnan_mask
+        return img_rgb, label.astype(np.int32), img_cp, img_ocp, cpos, ocpos, pc, nonnan_mask

@@ -28,18 +28,30 @@ class DualCenterProposalAccuracy(function.Function):
         obj_cls = numpy.argmax(cls_count[1:]) + 1
 
         pred_mask = xp.invert(xp.isnan(t_pc[0]))[0] * (pred == obj_cls)
-
+        t_pc[t_pc != t_pc] = 0
 
         if pred_mask.sum() == 0 :
-            return xp.asarray(4, dtype=y_cp.dtype), xp.asarray(4, dtype=y_ocp.dtype),
+            return xp.asarray(10, dtype=y_cp.dtype), xp.asarray(10, dtype=y_ocp.dtype),
         else:
-            prob_weight = (pred_mask * prob) / (pred_mask * prob).sum()
-            estimated_cp = xp.sum(xp.sum(prob_weight * (y_cp[0] + t_pc[0]), axis=1),axis=1)
-            estimated_ocp = xp.sum(xp.sum(prob_weight * (y_ocp[0] + t_pc[0]), axis=1), axis=1)
+            prob_weight = (pred_mask * prob) / xp.sum(pred_mask * prob)
+            estimated_cp = xp.sum((prob_weight * (y_cp[0] + t_pc[0])).reshape(3, -1), axis=1)
+            estimated_ocp = xp.sum((prob_weight * (y_ocp[0] + t_pc[0])).reshape(3, -1), axis=1)
 
+            test = ((y_cp[0] + t_pc[0]) * pred_mask).reshape(3,-1)
+            numpy.save("prob.npy", cuda.to_cpu(prob))
+            numpy.save("cp.npy", cuda.to_cpu(t_cp))
+            numpy.save("test.npy", cuda.to_cpu(test))
+
+
+        # print "-------"
+        # print numpy.max(((y_cp[0] + t_pc[0]) * pred_mask).reshape(3,-1), axis=1)
+        # print numpy.min(((y_cp[0] + t_pc[0]) * pred_mask).reshape(3,-1), axis=1)
+        # print estimated_cp
+        # print estimated_ocp
+        # print t_cp[0]
         ret_cp = xp.sqrt(xp.sum(xp.square(estimated_cp - t_cp[0])))
         ret_ocp = xp.sqrt(xp.sum(xp.square(estimated_ocp - t_ocp[0])))
-        return xp.asarray(ret_pos, dtype=y_pos.dtype), xp.asarray(ret_rot, dtype=y_rot.dtype),
+        return xp.asarray(ret_cp, dtype=y_cp.dtype), xp.asarray(ret_ocp, dtype=y_ocp.dtype),
 
 
 def dual_cp_accuracy(y_cls, y_cp, y_ocp, t_cp, t_ocp, t_pc, eps=0.2):
