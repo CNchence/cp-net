@@ -86,9 +86,11 @@ def main():
 
     n_class = 2
     # n_class = 36
-    n_view = 5
+    n_view = 37
     train_path = os.path.join(os.getcwd(), '../train_data/willow_models')
     caffe_model = 'ResNet-50-model.caffemodel'
+
+    chainer.using_config('cudnn_deterministic', True)
 
     model = DualCPNetClassifier(DualCenterProposalNetworkRes50FCN(
         n_class=n_class, pretrained_model= not args.train_resnet))
@@ -103,7 +105,7 @@ def main():
 
     # load train data
     train = DualCPNetDataset(train_path, range(1,n_class), range(0, n_view - 2),
-                             random=True, random_flip=True)
+                             random=True, random_flip=False)
     # load test data
     test = DualCPNetDataset(train_path, range(1,n_class), range(n_view - 2, n_view),
                             img_size=(256, 192), random=False, random_flip = False)
