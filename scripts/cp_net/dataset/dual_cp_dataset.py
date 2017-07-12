@@ -13,16 +13,16 @@ import cp_net.utils.preprocess_utils as preprocess_utils
 class DualCPNetDataset(dataset.DatasetMixin):
 
     def __init__(self, path, class_indices, view_indices, img_size=(256, 192),
-                 random=True, random_flip=False, random_ratio=False):
+                 random=True, random_flip=False, random_resize=False):
         self.base = path
         self.n_class = len(class_indices)
         self.n_view = len(view_indices)
         self.class_indices = class_indices
         self.view_indices = view_indices
         self.img_size = img_size
-        # self.mean = mean.astype('f')
         self.random = random
         self.random_flip = random_flip
+        self.random_resize = random_resize
 
     def __len__(self):
         return self.n_class * self.n_view
@@ -78,6 +78,48 @@ class DualCPNetDataset(dataset.DatasetMixin):
             pc[0] *= -1.0
             pos[0] *= -1.0
 
+
+        # random resizing
+        if self.random_resize:
+            resize_ratio = random.uniform(0.5, 1.5)
+            resized_imsize = (int(img_size[0] * resize_ratio),
+                              int(img_size[1] * resize_ratio))
+
+            if resize_ratio < 1.0:
+                clop_h = random.randint(0, img_size[1] - resized_imsize[1])
+                clop_w = random.randint(0, img_size[0] - resized_imsize[0])
+
+                img_rgb = img_rgb[clop_h:(clop_h + resized_imsize[1]),
+                                  clop_w:(clop_w + resized_imsize[0]), :]
+                img_rgb = cv2.resize(img_rgb, img_size)
+
+                pc = pc[clop_h:(clop_h + resized_imsize[1]),
+                        clop_w:(clop_w + resized_imsize[0]), :]
+                pc = cv2.resize(pc, img_size)
+                pc[:,:,3] *= 1.0 / resize_ratio
+
+                mask = mask[clop_h:(clop_h + resized_imsize[1]),
+                            clop_w:(clop_w + resized_imsize[0])]
+                mask = cv2.resize(mask, img_size)
+
+            elif resize_ratio > 1.0:
+                clop_h = random.randint(0, resized_imsize[1] - img_size[1])
+                clop_w = random.randint(0, resized_imsize[0] - img_size[0])
+
+                img_rgb = cv2.resize(img_rgb, resized_imsize)
+                img_rgb = img_rgb[clop_h:(clop_h + img_size[1]),
+                                  clop_w:(clop_w + img_size[0]), :]
+
+                pc = cv2.resize(pc, resized_imsize)
+                pc = pc[clop_h:(clop_h + img_size[1]),
+                        clop_w:(clop_w + img_size[0]), :]
+                pc[:,:,3] *= 1.0 / resize_ratio
+
+                mask = cv2.resize(mask, resized_imsize)
+                mask = mask[clop_h:(clop_h + img_size[1]),
+                            clop_w:(clop_w + img_size[0])]
+        # print "-----"
+        # print rot
         inv_rot = np.linalg.inv(rot)
         # inv_trans_rot = np.dot(np.linalg.inv(trans), np.dot(inv_rot, trans))
         # cpos = np.array([cpos[2], -cpos[0], -cpos[1]])
@@ -85,25 +127,22 @@ class DualCPNetDataset(dataset.DatasetMixin):
         pc = cv2.resize(pc, img_size).transpose(2,0,1)
         img_cp = pos[:, np.newaxis, np.newaxis] - pc
         img_cp[img_cp != img_cp] = 0
-        img_cp = img_cp.astype(np.float32)
 
-        img_ocp = np.dot(inv_rot, - img_cp.reshape(3,-1)).reshape(img_cp.shape).astype(np.float32)
+        img_ocp = np.dot(inv_rot, - img_cp.reshape(3,-1)).reshape(img_cp.shape)
 
+        img_cp = (img_cp * mask).astype(np.float32)
+        img_ocp = (img_ocp * mask).astype(np.float32)
 
-        ## nonnan label mask
-        ## nan and bg is 0, object = 1
-        nonnan_mask = (np.invert(np.isnan(pc[0])) * mask).astype(np.float32)
+        ## nonnan mask
+        nonnan_mask = np.invert(np.isnan(pc[0])).astype(np.float32)
 
-        pc_nonnan = pc
-        pc_nonnan[pc_nonnan != pc_nonnan] = 0
-
-        # img_cp = img_cp * nonnan_mask
-        # img_ocp = img_ocp * nonnan_mask
 
         # print "============"
-        # print np.max(((img_cp + pc_nonnan) * nonnan_mask).reshape(3,-1), axis=1)
+        # print rot3
+        # print inv_rot
+        # print np.ma3x(((img_cp + pc_nonnan) * nonnan_mask).reshape(3,-1), axis=1)
         # print np.min(((img_cp + pc_nonnan) * nonnan_mask).reshape(3,-1), axis=1)
         # print np.max(pc_nonnan.reshape(3,-1), axis=1)
         # print np.min(pc_nonnan.reshape(3,-1), axis=1)
 
-        return img_rgb, label.astype(np.int32), img_cp, img_ocp, pos, pc, nonnan_mask
+        return img_rgb, label.astype(np.int32), img_cp, img_ocp, pos, pc, mask.astype(np.int32), nonnan_mask
