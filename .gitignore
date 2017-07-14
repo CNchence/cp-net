@@ -2,5 +2,9 @@
 *.pyc
 .DS_Store
 .\~
+*.egg-info
+
+# dataset dir
 download_data/
 train_data/
+trained_data/
