@@ -144,5 +144,6 @@ class DualCPNetDataset(dataset.DatasetMixin):
         # print np.min(((img_cp + pc_nonnan) * nonnan_mask).reshape(3,-1), axis=1)
         # print np.max(pc_nonnan.reshape(3,-1), axis=1)
         # print np.min(pc_nonnan.reshape(3,-1), axis=1)
+        # mask = mask.reshape(1, mask.shape[0], mask.shape[1])
 
         return img_rgb, label.astype(np.int32), img_cp, img_ocp, pos, pc, mask.astype(np.int32), nonnan_mask
