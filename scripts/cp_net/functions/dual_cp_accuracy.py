@@ -86,10 +86,6 @@ class DualCenterProposalAccuracy(function.Function):
                 cp_std = xp.std(cp_demean)
                 cp_mask = (xp.linalg.norm(cp_demean, axis=0) < cp_std * 3)
 
-                # print "---"
-                # print estimated_cp[i] - t_cp[i]
-                # print xp.mean((y_cp[i] + t_pc[i]).reshape(3,-1)[:, pred_mask[i].ravel()][:, cp_mask], axis=1) - t_cp[i]
-                # print numpy.median(cuda.to_cpu((y_cp[i] + t_pc[i]).reshape(3,-1)[:, pred_mask[i].ravel()][:, cp_mask]), axis=1) - cuda.to_cpu(t_cp[i])
                 t_pc_nonzero = t_pc[i].reshape(3,-1)[:, pred_mask[i].ravel()][:, cp_mask]
                 t_pc_mean = xp.mean(t_pc_nonzero, axis=1)
                 t_pc_demean = t_pc_nonzero - t_pc_mean[:,numpy.newaxis]
@@ -99,7 +95,6 @@ class DualCenterProposalAccuracy(function.Function):
                 y_ocp_demean = y_ocp_nonzero - y_ocp_mean[:,numpy.newaxis]
 
                 t_ocp_nonzero = t_ocp[i].reshape(3,-1)[:, pred_mask[i].ravel()][:,cp_mask]
-
 
                 if self.method == 'SVD':
                     ## iterative SVD
@@ -131,11 +126,6 @@ class DualCenterProposalAccuracy(function.Function):
                             diff = t_pc_demean - xp.dot(R, y_ocp_demean)
                             diff_var = xp.sqrt(xp.var(diff))
                             diff_mask = (xp.linalg.norm(diff, axis=0) < diff_var * 1.96).astype(numpy.bool)
-
-                            # print "loop : "  + str(j)
-                            # print xp.mean(t_pc_demean - xp.dot(R, y_ocp_demean), axis = 1)
-                            # print xp.max(xp.abs(t_pc_demean - xp.dot(R, y_ocp_demean)), axis=1)
-                            # print xp.sqrt(xp.var(t_pc_demean - xp.dot(R, y_ocp_demean), axis=1))
 
                     # print R
                     # print "--"
@@ -177,7 +167,6 @@ class DualCenterProposalAccuracy(function.Function):
                         H = xp.diag(xp.array([1,1,VU_det], dtype=xp.float64))
 
                         _R = xp.dot(xp.dot(U, H), V)
-                        # _t = (random_pc_mean[:, i_ransac] - xp.dot(_R, random_ocp_mean[:, i_ransac])
 
                         ## count inliers
                         thre = xp.std(t_pc_demean - xp.dot(_R, y_ocp_demean), axis=1)[:, numpy.newaxis]
@@ -221,22 +210,6 @@ class DualCenterProposalAccuracy(function.Function):
                              VU[0,1] * VU[1,0] * VU[2,2] - VU[0,0] * VU[1,2] * VU[2,1]
                     H = xp.diag(xp.array([1,1,VU_det], dtype=xp.float64))
                     R = xp.dot(xp.dot(U, H), V)
-                # print y_cp_mean - t_cp[i]
-                # # numpy.save("test_cp.npy", cuda.to_cpu(y_cp_nonzero - t_cp[i][:, numpy.newaxis]))
-                # print numpy.median(cuda.to_cpu(y_cp_nonzero - t_cp[i][:, numpy.newaxis]), axis=1)
-                # print xp.max(xp.abs((y_cp_nonzero - t_cp[i][:, numpy.newaxis])), axis=1)
-                # print xp.sqrt(xp.var(y_cp_nonzero, axis=1))
-
-                # t_ocp_nonzero = t_ocp[i].reshape(3,-1)[:, pred_mask[i].ravel()]
-                # # # print len(y_ocp_nonzero[0])
-                # ver1 = xp.sqrt(xp.var(y_ocp_nonzero -  t_ocp_nonzero, axis=1))
-                # mean1 = xp.mean(y_ocp_nonzero -  t_ocp_nonzero, axis=1)
-                # max1 = xp.max(xp.abs(y_ocp_nonzero -  t_ocp_nonzero), axis=1)
-                # print "---"
-                # print mean1
-                # print numpy.median(cuda.to_cpu(y_ocp_nonzero -  t_ocp_nonzero), axis=1)
-                # print ver1
-                # print max1
 
         ret_cp = xp.sqrt(xp.sum(xp.square(estimated_cp - t_cp)) / batch_size)
         ret_ocp = xp.sqrt(xp.sum(xp.square(estimated_ocp - t_cp)) / batch_size)
