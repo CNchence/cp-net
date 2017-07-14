@@ -145,9 +145,10 @@ def main():
 
     trainer.extend(extensions.PrintReport(
 
-        ['epoch',  'main/cls_loss',  'main/cp_loss', 'main/ocp_loss',
+        ['epoch',  'main/l_cls',  'main/l_cp', 'main/l_ocp',
+         'main/l_cp_mask', 'main/l_ocp_mask',
          'main/cls_acc', 'main/cp_acc', 'main/ocp_acc',
-         'val/main/cls_loss',  'val/main/cp_loss', 'val/main/ocp_loss',
+         'val/main/l_cls',  'val/main/l_cp', 'val/main/l_ocp',
          'val/main/cls_acc', 'val/main/cp_acc', 'val/main/ocp_acc',
          'elapsed_time']))
 
@@ -160,7 +161,7 @@ def main():
         chainer.serializers.load_npz(args.resume, trainer)
     else:
         root = '..'
-        npz_name = 'DualCenterProposalNetworkRes50FCN.npz'
+        npz_name = 'DualCenterProposalNetworkRes50FCN' + str(n_class) + 'class.npz'
         caffemodel_name = 'ResNet-50-model.caffemodel'
         path = os.path.join(root, 'trained_data/', npz_name)
         path_caffemodel = os.path.join(root, 'trained_data/', caffemodel_name)
