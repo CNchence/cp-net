@@ -124,10 +124,12 @@ class DepthInvariantNetDataset(dataset.DatasetMixin):
                                   int(img_size[1] * resize_ratio))
 
                 if resize_ratio < 1.0:
-                    if self.resize_train:
-                        resize_ratio = 0.5
-                    else:
+                    if not self.resize_train:
                         resize_ratio = 0.75
+                    # if self.resize_train:
+                    #     resize_ratio = 0.5
+                    # else:
+                    #     resize_ratio = 0.75
                     clop_h = random.randint(0, img_size[1] - resized_imsize[1])
                     clop_w = random.randint(0, img_size[0] - resized_imsize[0])
 
@@ -145,10 +147,12 @@ class DepthInvariantNetDataset(dataset.DatasetMixin):
 
                 elif resize_ratio > 1.0:
                     if resize_ratio < 1.0:
-                        if self.resize_train:
-                            resize_ratio = 1.5
-                        else:
+                        if not self.resize_train:
                             resize_ratio = 1.25
+                        # if self.resize_train:
+                        #     resize_ratio = 1.5
+                        # else:
+                        #     resize_ratio = 1.25
                         clop_h = random.randint(0, resized_imsize[1] - img_size[1])
                         clop_w = random.randint(0, resized_imsize[0] - img_size[0])
 

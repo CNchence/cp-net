@@ -21,7 +21,7 @@ from chainer.links.caffe import CaffeFunction
 
 from cp_net.models.cp_network import CenterProposalNetworkRes50FCN
 from cp_net.cp_classifier import CPNetClassifier
-from cp_net.preprocessed_dataset import PreprocessedDataset
+from datasets.preprocessed_dataset import PreprocessedDataset
 
 import argparse
 import os

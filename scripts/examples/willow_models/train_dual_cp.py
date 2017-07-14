@@ -21,7 +21,7 @@ from chainer.links.caffe import CaffeFunction
 
 from cp_net.models.dual_cp_network import DualCenterProposalNetworkRes50FCN
 from cp_net.classifiers.dual_cp_classifier import DualCPNetClassifier
-from cp_net.dataset.dual_cp_dataset import DualCPNetDataset
+from datasets.dual_cp_dataset import DualCPNetDataset
 
 import argparse
 import os
