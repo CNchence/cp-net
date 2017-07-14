@@ -21,7 +21,7 @@ from chainer.links.caffe import CaffeFunction
 
 from cp_net.models.depth_invariant_network import DepthInvariantNetworkRes50FCN
 from cp_net.models.depth_invariant_network_v2 import DepthInvariantNetworkRes50FCNVer2
-from cp_net.di_net_dataset import DepthInvariantNetDataset
+from datasets.di_net_dataset import DepthInvariantNetDataset
 
 import argparse
 import os
