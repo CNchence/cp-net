@@ -121,8 +121,6 @@ class DualCPNetDataset(dataset.DatasetMixin):
         # print "-----"
         # print rot
         inv_rot = np.linalg.inv(rot)
-        # inv_trans_rot = np.dot(np.linalg.inv(trans), np.dot(inv_rot, trans))
-        # cpos = np.array([cpos[2], -cpos[0], -cpos[1]])
 
         pc = cv2.resize(pc, img_size).transpose(2,0,1)
         img_cp = pos[:, np.newaxis, np.newaxis] - pc
