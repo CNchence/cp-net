@@ -17,7 +17,7 @@ def det3x3(mat):
 
 class DualCenterProposalAccuracy(function.Function):
 
-    ## Support one class per flame
+    ## Support multi-class, one instance per one class
 
     def __init__(self, eps=0.2, cp_eps=0.7,
                  distance_sanity=0.1, method="SVD"):
@@ -56,7 +56,9 @@ class DualCenterProposalAccuracy(function.Function):
         obj_cls = numpy.argmax(cls_count[:,1:], axis=1) + 1
 
         # with nonnan_mask
-        pred_mask = xp.invert(xp.isnan(t_pc[:,0,:])) * (pred == obj_cls[:, numpy.newaxis, numpy.newaxis])
+        pred_mask = xp.invert(xp.isnan(t_pc[:,0,:]))
+
+        pred_mask *= (pred == obj_cls[:, numpy.newaxis, numpy.newaxis])
 
         t_pc[t_pc != t_pc] = 0
         pred_mask_tmp = pred_mask
@@ -177,14 +179,6 @@ class DualCenterProposalAccuracy(function.Function):
                         if cnt > max_cnt:
                             max_cnt = cnt
                             max_inlier_mask = inlier_mask
-                            # print "-"
-                            # print xp.sum(max_inlier_mask)
-                            # print len(max_inlier_mask)
-                    # test_mask = (xp.linalg.norm(t_ocp_nonzero - y_ocp_nonzero, axis=0) < thre / 2.0)
-                    # print xp.sum(1 - test_mask)
-                    # print xp.sum(1 - max_inlier_mask)
-                    # print xp.sum(max_inlier_mask)
-                    # print xp.sum(max_inlier_mask * (1 - test_mask))
 
                     # print (t_ocp_nonzero - y_ocp_nonzero)[:, max_inlier_mask].shape
                     # print xp.max(xp.abs((t_ocp_nonzero - y_ocp_nonzero)[:, max_inlier_mask]), axis=1)
