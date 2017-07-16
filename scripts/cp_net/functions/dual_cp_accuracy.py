@@ -66,8 +66,8 @@ class DualCenterProposalAccuracy(function.Function):
 
         # pred_mask = pred_mask * cp_pred_mask * ocp_pred_mask
 
-        for i_b in range(batch_size):
-            for i_c in range(1, n_class):
+        for i_b in six.moves.range(batch_size):
+            for i_c in six.moves.range(1, n_class):
                 pmask = pred_mask[i_b] * (pred[i_b] == i_c)
                 if pmask.sum() < 50:
                     estimated_cp[i_b, i_c] = penalty
@@ -99,7 +99,7 @@ class DualCenterProposalAccuracy(function.Function):
                         ## iterative SVD
                         diff_mask = xp.ones(t_pc_nonzero.shape[1]).astype(numpy.bool)
                         R = xp.empty((3,3))
-                        for j in range(2):
+                        for j in six.moves.range(2):
                             if xp.sum(diff_mask) >= 3:
                                 y_ocp_nonzero = y_ocp_nonzero[:, diff_mask]
                                 y_ocp_mean = xp.mean(y_ocp_nonzero, axis=1)
@@ -152,7 +152,7 @@ class DualCenterProposalAccuracy(function.Function):
                         random_pc = t_pc_nonzero[:, rand_sample]
                         random_pc_mean = xp.mean(random_pc, axis=2)
 
-                        for i_ransac in range(n_ransac):
+                        for i_ransac in six.moves.range(n_ransac):
                             random_ocp_demean = random_ocp[:, i_ransac] \
                                                 - random_ocp_mean[:, i_ransac]
                             random_pc_demean = random_pc[:, i_ransac] \
@@ -197,8 +197,8 @@ class DualCenterProposalAccuracy(function.Function):
         ret_cp = 0.0
         ret_ocp = 0.0
 
-        for i_b in range(batch_size):
-            for i_c in range(1, n_class):
+        for i_b in six.moves.range(batch_size):
+            for i_c in six.moves.range(1, n_class):
                 if xp.linalg.norm(estimated_cp[i_b, i_c] - penalty) > 0.001 \
                    or xp.linalg.norm(t_cp[i_b, i_c]) != 0:
                     match_cnt += 1.0
