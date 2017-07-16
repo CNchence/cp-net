@@ -9,6 +9,11 @@ from chainer.utils import type_check
 def softmax(x, xp):
     return xp.exp(x) / xp.sum(xp.exp(x), axis=1)[:, numpy.newaxis, :, :]
 
+def det3x3(mat):
+    ret = mat[0,0] * mat[1,1] * mat[2,2] + mat[0,1] * mat[1,2] * mat[2,0] +\
+          mat[0,2] * mat[1,0] * mat[2,1] - mat[0,2] * mat[1,1] * mat[2,0] -\
+          mat[0,1] * mat[1,0] * mat[2,2] - mat[0,0] * mat[1,2] * mat[2,1]
+    return ret
 
 class DualCenterProposalAccuracy(function.Function):
 
@@ -114,10 +119,7 @@ class DualCenterProposalAccuracy(function.Function):
                             U, S, V = xp.linalg.svd(xp.dot(t_pc_demean, y_ocp_demean.T))
 
                             # det(U, V)
-                            VU = xp.dot(V, U)
-                            VU_det = VU[0,0] * VU[1,1] * VU[2,2] + VU[0,1] * VU[1,2] * VU[2,0] +\
-                                     VU[0,2] * VU[1,0] * VU[2,1] - VU[0,2] * VU[1,1] * VU[2,0] -\
-                                     VU[0,1] * VU[1,0] * VU[2,2] - VU[0,0] * VU[1,2] * VU[2,1]
+                            VU_det = det3x3(xp.dot(V, U))
                             H = xp.diag(xp.array([1,1,VU_det], dtype=xp.float64))
                             R = xp.dot(xp.dot(U, H), V)
 
@@ -160,10 +162,7 @@ class DualCenterProposalAccuracy(function.Function):
 
                         U, S, V = xp.linalg.svd(xp.dot(random_pc_demean, random_ocp_demean.T))
                         # det(U, V)
-                        VU = xp.dot(V, U)
-                        VU_det = VU[0,0] * VU[1,1] * VU[2,2] + VU[0,1] * VU[1,2] * VU[2,0] +\
-                                 VU[0,2] * VU[1,0] * VU[2,1] - VU[0,2] * VU[1,1] * VU[2,0] -\
-                                 VU[0,1] * VU[1,0] * VU[2,2] - VU[0,0] * VU[1,2] * VU[2,1]
+                        VU_det = det3x3(xp.dot(V, U))
                         H = xp.diag(xp.array([1,1,VU_det], dtype=xp.float64))
 
                         _R = xp.dot(xp.dot(U, H), V)
@@ -204,10 +203,7 @@ class DualCenterProposalAccuracy(function.Function):
                     U, S, V = xp.linalg.svd(xp.dot(t_pc_demean, y_ocp_demean.T))
 
                     # det(U, V)
-                    VU = xp.dot(V, U)
-                    VU_det = VU[0,0] * VU[1,1] * VU[2,2] + VU[0,1] * VU[1,2] * VU[2,0] +\
-                             VU[0,2] * VU[1,0] * VU[2,1] - VU[0,2] * VU[1,1] * VU[2,0] -\
-                             VU[0,1] * VU[1,0] * VU[2,2] - VU[0,0] * VU[1,2] * VU[2,1]
+                    VU_det = det3x3(xp.dot(V, U))
                     H = xp.diag(xp.array([1,1,VU_det], dtype=xp.float64))
                     R = xp.dot(xp.dot(U, H), V)
 
