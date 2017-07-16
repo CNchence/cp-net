@@ -134,6 +134,8 @@ class DualCPNetDataset(dataset.DatasetMixin):
         ## nonnan mask
         nonnan_mask = np.invert(np.isnan(pc[0])).astype(np.float32)
 
+        pos_arr = np.zeros((self.n_class + 1, 3))
+        pos_arr[c_i] = pos
 
         # print "============"
         # print rot3
@@ -144,4 +146,4 @@ class DualCPNetDataset(dataset.DatasetMixin):
         # print np.min(pc_nonnan.reshape(3,-1), axis=1)
         # mask = mask.reshape(1, mask.shape[0], mask.shape[1])
 
-        return img_rgb, label.astype(np.int32), img_cp, img_ocp, pos, pc, mask.astype(np.int32), nonnan_mask
+        return img_rgb, label.astype(np.int32), img_cp, img_ocp, pos_arr, pc, mask.astype(np.int32), nonnan_mask
