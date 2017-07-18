@@ -65,11 +65,10 @@ class DualCenterProposalAccuracy(function.Function):
             pred_mask = pred_mask * dist_mask
 
         # pred_mask = pred_mask * cp_pred_mask * ocp_pred_mask
-
         for i_b in six.moves.range(batch_size):
             for i_c in six.moves.range(1, n_class):
                 pmask = pred_mask[i_b] * (pred[i_b] == i_c)
-                if pmask.sum() < 50:
+                if xp.sum(pmask) < 50:
                     estimated_cp[i_b, i_c] = penalty
                     estimated_ocp[i_b, i_c] = penalty
                 else:
@@ -204,13 +203,19 @@ class DualCenterProposalAccuracy(function.Function):
                     match_cnt += 1.0
                     ret_cp += xp.linalg.norm(estimated_cp[i_b, i_c] - t_cp[i_b, i_c])
                     ret_ocp += xp.linalg.norm(estimated_ocp[i_b, i_c] - t_cp[i_b, i_c])
-
-        ret_cp /= (match_cnt * batch_size)
-        ret_ocp /= (match_cnt * batch_size)
+        if match_cnt > 0:
+            ret_cp /= match_cnt
+            ret_ocp /= match_cnt
+        else:
+            ret_cp = xp.linalg.norm(penalty)
+            ret_ocp = xp.linalg.norm(penalty)
 
         return xp.asarray(ret_cp, dtype=y_cp.dtype), xp.asarray(ret_ocp, dtype=y_ocp.dtype),
 
 
-def dual_cp_accuracy(y_cls, y_cp, t_ocp, y_ocp, t_cp, t_pc, cp_mask, ocp_mask, eps=0.2):
-    return DualCenterProposalAccuracy(eps=eps, method="RANSAC")(y_cls, y_cp, t_ocp, y_ocp, t_cp,
-                                                                t_pc, cp_mask, ocp_mask)
+def dual_cp_accuracy(y_cls, y_cp, t_ocp, y_ocp, t_cp, t_pc, cp_mask, ocp_mask,
+                     eps=0.2, distance_sanity=0.1):
+    return DualCenterProposalAccuracy(eps=eps,
+                                      distance_sanity=distance_sanity,
+                                      method="SVD")(y_cls, y_cp, t_ocp, y_ocp, t_cp,
+                                                    t_pc, cp_mask, ocp_mask)
