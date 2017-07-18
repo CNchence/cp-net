@@ -9,7 +9,7 @@ import chainer.links.model.vision.resnet as R
 from chainer.functions.array import concat
 
 class DualCenterProposalNetworkRes50FCN(chainer.Chain):
-    def __init__(self, n_class=36, pretrained_model = None):
+    def __init__(self, n_class=36, pretrained_model = None, output_scale=1.0):
         if pretrained_model:
             # As a sampling process is time-consuming,
             # we employ a zero initializer for faster computation.
@@ -19,6 +19,7 @@ class DualCenterProposalNetworkRes50FCN(chainer.Chain):
             # employ default initializers used in the original paper
             kwargs = {'initialW': normal.HeNormal(scale=1.0)}
         self.n_class = n_class
+        self.output_scale = output_scale
         super(DualCenterProposalNetworkRes50FCN, self).__init__(
             # resnet50
             conv1=L.Convolution2D(3, 64, 7, 2, 3, **kwargs),
@@ -94,14 +95,14 @@ class DualCenterProposalNetworkRes50FCN(chainer.Chain):
         h_cp = F.elu(self.bn_cp3(self.upscore_cp1(h_cp)))
         h_cp = self.upscore_cp2(h_cp)
 
-        cp_score = F.tanh(h_cp[:,:3])
+        cp_score = F.tanh(h_cp[:,:3]) * self.output_scale
         cp_mask = F.relu(h_cp[:, 3:])
 
         h_ocp = F.relu(self.bn_ocp2(self.conv_ocp2(h_ocp)))
         h_ocp = F.elu(self.bn_ocp3(self.upscore_ocp1(h_ocp)))
         h_ocp = self.upscore_ocp2(h_ocp)
 
-        ocp_score = F.tanh(h_ocp[:,:3])
+        ocp_score = F.tanh(h_ocp[:,:3]) * self.output_scale
         ocp_mask = F.relu(h_ocp[:, 3:])
 
         return score, cp_score, ocp_score, cp_mask, ocp_mask
