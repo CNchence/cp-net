@@ -49,14 +49,14 @@ class DualCenterProposalNetworkRes50FCN(chainer.Chain):
             bn_cp2 = L.BatchNormalization(512),
             upscore_cp1 = L.Deconvolution2D(512, 16, 8, stride=4, pad=2),
             bn_cp3 = L.BatchNormalization(16),
-            upscore_cp2 = L.Deconvolution2D(16, 5, 4, stride=2, pad=1),
+            upscore_cp2 = L.Deconvolution2D(16, 3, 4, stride=2, pad=1),
 
             # origin center pose network
             conv_ocp2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
             bn_ocp2 = L.BatchNormalization(512),
             upscore_ocp1 = L.Deconvolution2D(512, 16, 8, stride=4, pad=2),
             bn_ocp3 = L.BatchNormalization(16),
-            upscore_ocp2 = L.Deconvolution2D(16, 5, 4, stride=2, pad=1),
+            upscore_ocp2 = L.Deconvolution2D(16, 3, 4, stride=2, pad=1),
         )
 
     def __call__(self, x1, eps=0.001):
@@ -95,14 +95,11 @@ class DualCenterProposalNetworkRes50FCN(chainer.Chain):
         h_cp = F.elu(self.bn_cp3(self.upscore_cp1(h_cp)))
         h_cp = self.upscore_cp2(h_cp)
 
-        cp_score = F.tanh(h_cp[:,:3]) * self.output_scale
-        cp_mask = F.relu(h_cp[:, 3:])
-
         h_ocp = F.relu(self.bn_ocp2(self.conv_ocp2(h_ocp)))
         h_ocp = F.elu(self.bn_ocp3(self.upscore_ocp1(h_ocp)))
         h_ocp = self.upscore_ocp2(h_ocp)
 
-        ocp_score = F.tanh(h_ocp[:,:3]) * self.output_scale
-        ocp_mask = F.relu(h_ocp[:, 3:])
+        cp_score = F.tanh(h_cp) * self.output_scale
+        ocp_score = F.tanh(h_ocp) * self.output_scale
 
-        return score, cp_score, ocp_score, cp_mask, ocp_mask
+        return score, cp_score, ocp_score

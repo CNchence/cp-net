@@ -74,7 +74,7 @@ def main():
                         help='Interval of displaying log to console')
     parser.add_argument('--frequency', '-f', type=int, default=-1,
                         help='Frequency of taking a snapshot')
-    parser.add_argument('--train_resnet', type=bool, default=False,
+    parser.add_argument('--train_resnet', type=bool, default=True,
                         help='train resnet')
 
     args = parser.parse_args()
@@ -88,10 +88,14 @@ def main():
     train_path = os.path.join(os.getcwd(), '../../../train_data/OcclusionChallengeICCV2015')
     caffe_model = 'ResNet-50-model.caffemodel'
 
+    distance_sanity = 0.05
+
     chainer.using_config('cudnn_deterministic', True)
 
-    model = DualCPNetClassifier(DualCenterProposalNetworkRes50FCN(
-        n_class=n_class, output_scale=1.0, pretrained_model= not args.train_resnet))
+    model = DualCPNetClassifier(DualCenterProposalNetworkRes50FCN(n_class=n_class, output_scale=1.0,
+                                                                  pretrained_model= not args.train_resnet),
+                                mothod="RANSAC",
+                                distance_sanity=distance_sanity)
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
@@ -102,10 +106,10 @@ def main():
     optimizer.setup(model)
 
     # load train data
-    train = DualCPNetDataset(train_path, range(0, 1000), img_height = 192, img_width = 256,
+    train = DualCPNetDataset(train_path, range(0, 1200)[0::2], img_height = 192, img_width = 256,
                              random=True, random_crop=True)
     # load test data
-    test = DualCPNetDataset(train_path, range(1000, 1200), img_height = 192, img_width = 256)
+    test = DualCPNetDataset(train_path, range(0, 1200)[1::2], img_height = 192, img_width = 256)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,

@@ -66,6 +66,10 @@ class DualCPNetDataset(dataset.DatasetMixin):
         img_rgb = cv2.resize(img_rgb, img_size)
         img_rgb = img_rgb.transpose(2,0,1).astype(np.float32)
 
+        # imagenet_mean = np.array(
+        #     [123.68, 116.779, 103.939], dtype=np.float32)[:, np.newaxis, np.newaxis]
+        # img_rgb -= imagenet_mean
+
         mask = mask.transpose(2,0,1)[0] / 255.0  # Scale to [0, 1];
         mask = cv2.resize(mask, img_size)
         label = mask * c_i
@@ -137,6 +141,9 @@ class DualCPNetDataset(dataset.DatasetMixin):
         pos_arr = np.zeros((self.n_class + 1, 3))
         pos_arr[c_i] = pos
 
+        rot_arr = np.zeros((self.n_class + 1, 3, 3))
+        rot_arr[c_i] = rot
+
         # print "============"
         # print rot3
         # print inv_rot
@@ -146,4 +153,4 @@ class DualCPNetDataset(dataset.DatasetMixin):
         # print np.min(pc_nonnan.reshape(3,-1), axis=1)
         # mask = mask.reshape(1, mask.shape[0], mask.shape[1])
 
-        return img_rgb, label.astype(np.int32), img_cp, img_ocp, pos_arr, pc, mask.astype(np.int32), nonnan_mask
+        return img_rgb, label.astype(np.int32), img_cp, img_ocp, pos_arr, rot_arr, pc, mask.astype(np.int32), nonnan_mask
