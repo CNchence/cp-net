@@ -15,12 +15,19 @@ def det3x3(mat):
           mat[0,1] * mat[1,0] * mat[2,2] - mat[0,0] * mat[1,2] * mat[2,1]
     return ret
 
+def calc_rot_by_svd(Y, X, xp):
+    U, S, V = xp.linalg.svd(xp.dot(Y, X.T))
+    VU_det = det3x3(xp.dot(V, U))
+    H = xp.diag(xp.array([1, 1, VU_det], dtype=xp.float64))
+    R = xp.dot(xp.dot(U, H), V)
+    return R
+
 class DualCenterProposalAccuracy(function.Function):
 
     ## Support multi-class, one instance per one class
 
     def __init__(self, eps=0.2, cp_eps=0.7,
-                 distance_sanity=0.1, method="SVD"):
+                 distance_sanity=0.1, method="SVD", ver2=False):
         self.eps = eps
         self.cp_eps = cp_eps
         self.distance_sanity = distance_sanity
@@ -28,22 +35,22 @@ class DualCenterProposalAccuracy(function.Function):
 
     def forward(self, inputs):
         xp = cuda.get_array_module(*inputs)
-        y_cls, y_cp, t_ocp, y_ocp, t_cp, t_pc, cp_mask, ocp_mask = inputs
+        y_cls, y_cp, y_ocp, t_cp, t_rot, t_pc = inputs
         batch_size, n_class = y_cls.shape[:2]
 
         y_cls = softmax(y_cls, xp)
-        cp_mask = softmax(cp_mask, xp)
-        ocp_mask = softmax(ocp_mask, xp)
+        # cp_mask = softmax(cp_mask, xp)
+        # ocp_mask = softmax(ocp_mask, xp)
 
         prob = xp.max(y_cls, axis=1)
         pred = xp.argmax(y_cls, axis=1)
-        cp_prob = xp.max(cp_mask, axis=1)
-        ocp_prob = xp.max(ocp_mask, axis=1)
-        cp_pred = xp.argmax(cp_mask, axis=1)
-        ocp_pred = xp.argmax(ocp_mask, axis=1)
+        # cp_prob = xp.max(cp_mask, axis=1)
+        # ocp_prob = xp.max(ocp_mask, axis=1)
+        # cp_pred = xp.argmax(cp_mask, axis=1)
+        # ocp_pred = xp.argmax(ocp_mask, axis=1)
 
-        cp_pred_mask = ((cp_prob > self.cp_eps) * cp_pred).astype(numpy.bool)
-        ocp_pred_mask = ((ocp_prob > self.cp_eps) * ocp_pred).astype(numpy.bool)
+        # cp_pred_mask = ((cp_prob > self.cp_eps) * cp_pred).astype(numpy.bool)
+        # ocp_pred_mask = ((ocp_prob > self.cp_eps) * ocp_pred).astype(numpy.bool)
 
         # threshold
         pred[prob < self.eps] = 0
@@ -54,8 +61,9 @@ class DualCenterProposalAccuracy(function.Function):
         t_pc[t_pc != t_pc] = 0
         estimated_cp = xp.empty((batch_size, n_class, 3))
         estimated_ocp = xp.empty((batch_size, n_class, 3))
+        estimated_R = xp.empty((batch_size, n_class, 3, 3))
         penalty = xp.array([20, 20, 20])
-
+        pred_mask_tmp = pred_mask
         ## check dual cp distance sanity
         if self.distance_sanity:
             dist_cp = xp.linalg.norm(y_cp.reshape(batch_size, 3, -1), axis=1)
@@ -68,6 +76,8 @@ class DualCenterProposalAccuracy(function.Function):
         for i_b in six.moves.range(batch_size):
             for i_c in six.moves.range(1, n_class):
                 pmask = pred_mask[i_b] * (pred[i_b] == i_c)
+                pmask_tmp = pred_mask_tmp[i_b] * (pred[i_b] == i_c)
+                # print str(xp.sum(pmask)) + "  :  " + str(xp.sum(pmask_tmp))
                 if xp.sum(pmask) < 50:
                     estimated_cp[i_b, i_c] = penalty
                     estimated_ocp[i_b, i_c] = penalty
@@ -84,6 +94,8 @@ class DualCenterProposalAccuracy(function.Function):
                     cp_std = xp.std(cp_demean)
                     cp_mask = (xp.linalg.norm(cp_demean, axis=0) < cp_std * 3)
 
+                    y_cp_nonzero = (y_cp[i_b] + t_pc[i_b]).reshape(3, -1)[:, pmask.ravel()][:, cp_mask]
+
                     t_pc_nonzero = t_pc[i_b].reshape(3,-1)[:, pmask.ravel()][:, cp_mask]
                     t_pc_mean = xp.mean(t_pc_nonzero, axis=1)
                     t_pc_demean = t_pc_nonzero - t_pc_mean[:,numpy.newaxis]
@@ -92,7 +104,10 @@ class DualCenterProposalAccuracy(function.Function):
                     y_ocp_mean = xp.mean(y_ocp_nonzero, axis=1)
                     y_ocp_demean = y_ocp_nonzero - y_ocp_mean[:,numpy.newaxis]
 
-                    t_ocp_nonzero = t_ocp[i_b].reshape(3,-1)[:, pmask.ravel()][:,cp_mask]
+                    # t_ocp_nonzero = t_ocp[i_b].reshape(3,-1)[:, pmask.ravel()][:,cp_mask]
+
+                    y_cp_nonzero = (y_cp[i_b] + t_pc[i_b]).reshape(3, -1)[:, pmask.ravel()][:, cp_mask]
+                    y_cp_nonzero2 = y_cp[i_b].reshape(3,-1)[:, pmask.ravel()][:,cp_mask]
 
                     if self.method == 'SVD':
                         ## iterative SVD
@@ -108,14 +123,7 @@ class DualCenterProposalAccuracy(function.Function):
                                 t_pc_mean = xp.mean(t_pc_nonzero, axis=1)
                                 t_pc_demean = t_pc_nonzero - t_pc_mean[:,numpy.newaxis]
 
-                                ## rotation matrix estimation using SVD method
-                                U, S, V = xp.linalg.svd(xp.dot(t_pc_demean, y_ocp_demean.T))
-
-                                # det(U, V)
-                                VU_det = det3x3(xp.dot(V, U))
-                                H = xp.diag(xp.array([1,1,VU_det], dtype=xp.float64))
-                                R = xp.dot(xp.dot(U, H), V)
-
+                                R = calc_rot_by_svd(t_pc_demean, y_ocp_demean, xp)
                                 estimated_ocp[i_b, i_c] = t_pc_mean - xp.dot(R, y_ocp_mean)
 
                                 diff = t_pc_demean - xp.dot(R, y_ocp_demean)
@@ -156,17 +164,14 @@ class DualCenterProposalAccuracy(function.Function):
                                                 - random_ocp_mean[:, i_ransac]
                             random_pc_demean = random_pc[:, i_ransac] \
                                                - random_pc_mean[:, i_ransac]
-                            U, S, V = xp.linalg.svd(xp.dot(random_pc_demean, random_ocp_demean.T))
-                            # det(U, V)
-                            VU_det = det3x3(xp.dot(V, U))
-                            H = xp.diag(xp.array([1,1,VU_det], dtype=xp.float64))
-                            _R = xp.dot(xp.dot(U, H), V)
-                            _t = random_pc_mean[:, i_ransac] \
-                                 - xp.dot(_R, random_ocp_mean[:, i_ransac])
+
+                            _R = calc_rot_by_svd(random_pc_demean, random_ocp_demean, xp)
+                            _t = random_pc_mean[:, i_ransac] - xp.dot(_R, random_ocp_mean[:, i_ransac])
 
                             ## count inliers
-                            thre = xp.std(
-                                t_pc_demean - xp.dot(_R, y_ocp_demean), axis=1)[:, numpy.newaxis]
+                            # thre = xp.std(
+                            #     t_pc_demean - xp.dot(_R, y_ocp_demean), axis=1)[:, numpy.newaxis]
+                            thre = 0.025
                             inlier_mask3d = (
                                 xp.abs(t_pc_nonzero - xp.dot(_R, y_ocp_nonzero) \
                                        - _t[:, numpy.newaxis]) < thre * 2)
@@ -185,21 +190,25 @@ class DualCenterProposalAccuracy(function.Function):
                         t_pc_mean = xp.mean(t_pc_nonzero, axis=1)
                         t_pc_demean = t_pc_nonzero - t_pc_mean[:,numpy.newaxis]
 
-                        ## rotation matrix estimation using SVD method
-                        U, S, V = xp.linalg.svd(xp.dot(t_pc_demean, y_ocp_demean.T))
-                        VU_det = det3x3(xp.dot(V, U))
-                        H = xp.diag(xp.array([1,1,VU_det], dtype=xp.float64))
-                        R = xp.dot(xp.dot(U, H), V)
+                        R = calc_rot_by_svd(t_pc_demean, y_ocp_demean, xp)
                         estimated_ocp[i_b, i_c] = t_pc_mean - xp.dot(R, y_ocp_mean)
+
+                    elif self.method == "DUAL":
+                        # print y_cp_nonzero.shape
+                        diff_norm = xp.linalg.norm(y_cp_nonzero2, axis=0) - xp.linalg.norm(y_ocp_nonzero, axis=0)
+                        weight = xp.exp(- diff_norm) / xp.sum(xp.exp(- diff_norm))
+                        estimated_ocp[i_b, i_c] = xp.sum(weight[numpy.newaxis, :] * y_cp_nonzero, axis=1)
+                        R = calc_rot_by_svd(y_cp_nonzero2, y_ocp_nonzero, xp)
 
         match_cnt = 0.0
         ret_cp = 0.0
         ret_ocp = 0.0
+        ret_rot = 0.0
 
         for i_b in six.moves.range(batch_size):
             for i_c in six.moves.range(1, n_class):
                 if xp.linalg.norm(estimated_cp[i_b, i_c] - penalty) > 0.001 \
-                   or xp.linalg.norm(t_cp[i_b, i_c]) != 0:
+                   and xp.linalg.norm(t_cp[i_b, i_c]) != 0:
                     match_cnt += 1.0
                     ret_cp += xp.linalg.norm(estimated_cp[i_b, i_c] - t_cp[i_b, i_c])
                     ret_ocp += xp.linalg.norm(estimated_ocp[i_b, i_c] - t_cp[i_b, i_c])
@@ -209,13 +218,13 @@ class DualCenterProposalAccuracy(function.Function):
         else:
             ret_cp = xp.linalg.norm(penalty)
             ret_ocp = xp.linalg.norm(penalty)
+            ret_rot = 180
 
         return xp.asarray(ret_cp, dtype=y_cp.dtype), xp.asarray(ret_ocp, dtype=y_ocp.dtype),
 
 
-def dual_cp_accuracy(y_cls, y_cp, t_ocp, y_ocp, t_cp, t_pc, cp_mask, ocp_mask,
-                     eps=0.2, distance_sanity=0.1):
+def dual_cp_accuracy(y_cls, y_cp, y_ocp, t_cp, t_rot, t_pc,
+                     eps=0.2, distance_sanity=0.1, method="SVD", ver2=False):
     return DualCenterProposalAccuracy(eps=eps,
                                       distance_sanity=distance_sanity,
-                                      method="SVD")(y_cls, y_cp, t_ocp, y_ocp, t_cp,
-                                                    t_pc, cp_mask, ocp_mask)
+                                      method=method, ver2=ver2)(y_cls, y_cp, y_ocp, t_cp, t_rot, t_pc)

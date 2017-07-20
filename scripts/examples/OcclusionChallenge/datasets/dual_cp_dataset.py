@@ -102,9 +102,9 @@ class DualCPNetDataset(dataset.DatasetMixin):
         img_rgb = cv2.resize(img_rgb, (self.img_width, self.img_height))
         img_rgb = img_rgb.transpose(2,0,1).astype(np.float32)
 
-        imagenet_mean = np.array(
-            [123.68, 116.779, 103.939], dtype=np.float32)[:, np.newaxis, np.newaxis]
-        img_rgb -= imagenet_mean
+        # imagenet_mean = np.array(
+        #     [123.68, 116.779, 103.939], dtype=np.float32)[:, np.newaxis, np.newaxis]
+        # img_rgb -= imagenet_mean
 
         label = np.zeros((self.img_height, self.img_width))
         masks_tmp = np.zeros((self.n_class, self.img_height, self.img_width))
@@ -153,4 +153,4 @@ class DualCPNetDataset(dataset.DatasetMixin):
         ## ignore nan
         label[np.isnan(pc[0])] = -1
 
-        return img_rgb, label.astype(np.int32), img_cp, img_ocp, pos, pc, obj_mask.astype(np.int32), nonnan_mask
+        return img_rgb, label.astype(np.int32), img_cp, img_ocp, pos, rot, pc, obj_mask.astype(np.int32), nonnan_mask

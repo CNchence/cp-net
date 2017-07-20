@@ -90,10 +90,14 @@ def main():
     train_path = os.path.join(os.getcwd(), '../../../train_data/willow_models')
     caffe_model = 'ResNet-50-model.caffemodel'
 
+    distance_sanity = 0.05
+
     chainer.using_config('cudnn_deterministic', True)
 
-    model = DualCPNetClassifier(DualCenterProposalNetworkRes50FCN(
-        n_class=n_class, pretrained_model= not args.train_resnet))
+    model = DualCPNetClassifier(DualCenterProposalNetworkRes50FCN(n_class=n_class,
+                                                                  pretrained_model= not args.train_resnet),
+                                distance_sanity=distance_sanity,
+                                method="RANSAC")
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
@@ -108,7 +112,7 @@ def main():
                              random=True, random_flip=False, random_resize=False)
     # load test data
     test = DualCPNetDataset(train_path, range(1,n_class), range(n_view - 2, n_view),
-                            img_size=(256, 192), random=False, random_flip = False)
+                            random=False, random_flip = False)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
