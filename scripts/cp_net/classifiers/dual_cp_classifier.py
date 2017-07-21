@@ -10,9 +10,10 @@ from cp_net.functions.mask_mean_squared_error import mask_mean_squared_error
 
 class DualCPNetClassifier(link.Chain):
 
-    compute_accuracy = True
 
-    def __init__(self, predictor, distance_sanity=0.1, method="RANSAC"):
+
+    def __init__(self, predictor, distance_sanity=0.1, method="RANSAC",
+                 compute_accuracy = True):
         super(DualCPNetClassifier, self).__init__(predictor=predictor)
         self.y = None
         self.cls_loss = None
@@ -27,6 +28,7 @@ class DualCPNetClassifier(link.Chain):
         self.lambda2 = 1e2
         self.distance_sanity = distance_sanity
         self.method = method
+        self.compute_accuracy = compute_accuracy
 
     def __call__(self, *args):
         assert len(args) >= 2
@@ -43,10 +45,10 @@ class DualCPNetClassifier(link.Chain):
         self.y = self.predictor(*x)
         y_cls, y_cp, y_ocp = self.y
         self.cls_loss = F.softmax_cross_entropy(y_cls, t_cls)
-        self.cp_loss = mask_mean_squared_error(y_cp, t_cp, nonnan_mask) * 0.1
-        self.cp_loss += mask_mean_squared_error(y_cp, t_cp, (nonnan_mask * obj_mask).astype(np.float32)) * 0.9
-        self.ocp_loss = mask_mean_squared_error(y_ocp, t_ocp, nonnan_mask) * 0.1
-        self.ocp_loss += mask_mean_squared_error(y_ocp, t_ocp, (nonnan_mask * obj_mask).astype(np.float32)) * 0.9
+        self.cp_loss = mask_mean_squared_error(y_cp, t_cp.reshape(y_cp.shape), nonnan_mask) * 0.1
+        self.cp_loss += mask_mean_squared_error(y_cp, t_cp.reshape(y_cp.shape), (nonnan_mask * obj_mask).astype(np.float32)) * 0.9
+        self.ocp_loss = mask_mean_squared_error(y_ocp, t_ocp.reshape(y_ocp.shape), nonnan_mask) * 0.1
+        self.ocp_loss += mask_mean_squared_error(y_ocp, t_ocp.reshape(y_ocp.shape), (nonnan_mask * obj_mask).astype(np.float32)) * 0.9
         self.loss = self.cls_loss + self.lambda1 * self.cp_loss + self.lambda2 * self.ocp_loss
         reporter.report({'l_cls': self.cls_loss}, self)
         reporter.report({'l_cp': self.cp_loss}, self)

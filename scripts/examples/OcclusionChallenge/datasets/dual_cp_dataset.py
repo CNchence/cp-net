@@ -15,11 +15,11 @@ from obj_pose_eval import inout
 import cp_net.utils.preprocess_utils as preprocess_utils
 
 
-
 class DualCPNetDataset(dataset.DatasetMixin):
 
     def __init__(self, path, data_indices, img_height = 480, img_width = 640,
-                 random=False, random_crop=False, random_flip=False, random_resize=False):
+                 random=False, random_crop=False, random_flip=False, random_resize=False,
+                 ver2=False):
         self.base_path = path
         self.n_class = 9
         self.data_indices = data_indices
@@ -29,6 +29,9 @@ class DualCPNetDataset(dataset.DatasetMixin):
         self.random_crop = random_crop
         self.random_flip = random_flip
         self.random_resize = random_resize
+
+        self.ver2 = ver2
+
         self.objs = ['Ape', 'Can', 'Cat', 'Driller', 'Duck', 'Eggbox', 'Glue', 'Holepuncher']
 
         # get GT poses
@@ -132,15 +135,27 @@ class DualCPNetDataset(dataset.DatasetMixin):
         img_cp = np.zeros_like(pc)
         img_ocp = np.zeros_like(pc)
 
-        for idx in six.moves.range(1, self.n_class):
-            if np.linalg.norm(pos[idx]) != 0:
-                inv_rot = np.linalg.inv(rot[idx])
-                img_cp_tmp = pos[idx][:, np.newaxis, np.newaxis] - pc
-                img_cp_tmp[img_cp_tmp != img_cp_tmp] = 0
-
-                img_ocp_tmp = np.dot(inv_rot, - img_cp_tmp.reshape(3,-1)).reshape(img_cp.shape)
-                img_cp[:, masks[idx]] = img_cp_tmp[:, masks[idx]]
-                img_ocp[:, masks[idx]] = img_ocp_tmp[:, masks[idx]]
+        if self.ver2:
+            # ver2
+            img_cp = np.zeros((self.n_class, 3, self.img_height, self.img_width))
+            img_ocp = np.zeros_like(img_cp)
+            for idx in six.moves.range(1, self.n_class):
+                if np.linalg.norm(pos[idx]) != 0:
+                    inv_rot = np.linalg.inv(rot[idx])
+                    img_cp[idx] = pos[idx][:, np.newaxis, np.newaxis] - pc
+                    img_ocp[idx] = np.dot(inv_rot, - img_cp[idx].reshape(3,-1)).reshape(img_cp[idx].shape)
+            img_cp = img_cp * masks[:, np.newaxis, :, :]
+            img_ocp = img_ocp * masks[:, np.newaxis, :, :]
+        else:
+            # ver1
+            for idx in six.moves.range(1, self.n_class):
+                if np.linalg.norm(pos[idx]) != 0:
+                    inv_rot = np.linalg.inv(rot[idx])
+                    img_cp_tmp = pos[idx][:, np.newaxis, np.newaxis] - pc
+                    img_cp_tmp[img_cp_tmp != img_cp_tmp] = 0
+                    img_ocp_tmp = np.dot(inv_rot, - img_cp_tmp.reshape(3,-1)).reshape(img_cp.shape)
+                    img_cp[:, masks[idx]] = img_cp_tmp[:, masks[idx]]
+                    img_ocp[:, masks[idx]] = img_ocp_tmp[:, masks[idx]]
 
         img_cp = img_cp.astype(np.float32)
         img_ocp = img_ocp.astype(np.float32)
