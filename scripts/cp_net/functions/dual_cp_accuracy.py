@@ -22,6 +22,98 @@ def calc_rot_by_svd(Y, X, xp):
     R = xp.dot(xp.dot(U, H), V)
     return R
 
+def svd_estimation(y_ocp_nonzero, t_pc_nonzero, xp, n_iter=2):
+    ## iterative SVD
+    diff_mask = xp.ones(t_pc_nonzero.shape[1]).astype(numpy.bool)
+    for j in six.moves.range(n_iter):
+        if xp.sum(diff_mask) >= 3:
+            y_ocp_nonzero = y_ocp_nonzero[:, diff_mask]
+            y_ocp_mean = xp.mean(y_ocp_nonzero, axis=1)
+            y_ocp_demean = y_ocp_nonzero - y_ocp_mean[:,numpy.newaxis]
+
+            t_pc_nonzero = t_pc_nonzero[:, diff_mask]
+            t_pc_mean = xp.mean(t_pc_nonzero, axis=1)
+            t_pc_demean = t_pc_nonzero - t_pc_mean[:,numpy.newaxis]
+
+            ret_R = calc_rot_by_svd(t_pc_demean, y_ocp_demean, xp)
+            ret_cp = t_pc_mean - xp.dot(ret_R, y_ocp_mean)
+
+            diff = t_pc_demean - xp.dot(ret_R, y_ocp_demean)
+            diff_var = xp.sqrt(xp.var(diff))
+            diff_mask = (xp.linalg.norm(diff, axis=0) < diff_var * 1.96).astype(numpy.bool)
+
+    return ret_cp, ret_R
+
+
+def ransac_estimation(y_ocp_nonzero, t_pc_nonzero, xp, n_ransac=50):
+    # thre = xp.sqrt(xp.sum(xp.var(y_cp_nonzero - y_cp_mean[:, numpy.newaxis], axis=1)))
+    max_cnt = -1
+    max_inlier_mask = xp.empty(t_pc_nonzero.shape[1])
+    rand_sample = xp.array(
+        numpy.random.randint(0, len(max_inlier_mask), (n_ransac, 3)))
+
+    _R = xp.empty((3,3))
+    _t = xp.empty(3)
+
+    random_ocp = y_ocp_nonzero[:,rand_sample]
+    random_ocp_mean = xp.mean(random_ocp, axis=2)
+
+    random_pc = t_pc_nonzero[:, rand_sample]
+    random_pc_mean = xp.mean(random_pc, axis=2)
+
+    for i_ransac in six.moves.range(n_ransac):
+        random_ocp_demean = random_ocp[:, i_ransac] - random_ocp_mean[:, i_ransac]
+        random_pc_demean = random_pc[:, i_ransac] - random_pc_mean[:, i_ransac]
+
+        _R = calc_rot_by_svd(random_pc_demean, random_ocp_demean, xp)
+        _t = random_pc_mean[:, i_ransac] - xp.dot(_R, random_ocp_mean[:, i_ransac])
+        ## count inliers
+        # thre = xp.std(
+        #     t_pc_demean - xp.dot(_R, y_ocp_demean), axis=1)[:, numpy.newaxis]
+        thre = 0.025
+        inlier_mask3d = (
+            xp.abs(t_pc_nonzero - xp.dot(_R, y_ocp_nonzero) \
+                   - _t[:, numpy.newaxis]) < thre * 2)
+        inlier_mask = xp.sum(inlier_mask3d, axis=0)
+        inlier_mask = (inlier_mask == 3)
+        cnt = xp.sum(inlier_mask)
+        if cnt > max_cnt:
+            max_cnt = cnt
+            max_inlier_mask = inlier_mask
+
+    y_ocp_mean = xp.mean(y_ocp_nonzero[:, max_inlier_mask], axis=1)
+    t_pc_mean = xp.mean(t_pc_nonzero[:, max_inlier_mask], axis=1)
+    ret_R = calc_rot_by_svd(t_pc_nonzero[:, max_inlier_mask] - t_pc_mean[:,numpy.newaxis],
+                            y_ocp_nonzero[:, max_inlier_mask] - y_ocp_mean[:,numpy.newaxis], xp)
+    ret_cp = t_pc_mean - xp.dot(ret_R, y_ocp_mean)
+    return ret_cp, ret_R
+
+
+def calc_accuracy_impl(estimated_cp, estimated_ocp, t_cp, batch_size, n_class, xp):
+    match_cnt = 0.0
+    cp_acc = 0.0
+    ocp_acc = 0.0
+    rot_acc = 0.0
+    penalty = xp.array([20, 20, 20])
+
+    for i_b in six.moves.range(batch_size):
+        for i_c in six.moves.range(1, n_class):
+            if xp.linalg.norm(estimated_cp[i_b, i_c] - penalty) > 0.001 \
+               and xp.linalg.norm(t_cp[i_b, i_c]) != 0:
+                match_cnt += 1.0
+                cp_acc += xp.linalg.norm(estimated_cp[i_b, i_c] - t_cp[i_b, i_c])
+                ocp_acc += xp.linalg.norm(estimated_ocp[i_b, i_c] - t_cp[i_b, i_c])
+
+    if match_cnt > 0:
+        cp_acc /= match_cnt
+        ocp_acc /= match_cnt
+    else:
+        cp_acc = xp.linalg.norm(penalty)
+        ocp_acc = xp.linalg.norm(penalty)
+        rot_acc = 180
+
+    return cp_acc, ocp_acc
+
 class DualCenterProposalAccuracy(function.Function):
 
     ## Support multi-class, one instance per one class
@@ -32,6 +124,7 @@ class DualCenterProposalAccuracy(function.Function):
         self.cp_eps = cp_eps
         self.distance_sanity = distance_sanity
         self.method = method
+        self.ver2 = ver2
 
     def forward(self, inputs):
         xp = cuda.get_array_module(*inputs)
@@ -39,18 +132,9 @@ class DualCenterProposalAccuracy(function.Function):
         batch_size, n_class = y_cls.shape[:2]
 
         y_cls = softmax(y_cls, xp)
-        # cp_mask = softmax(cp_mask, xp)
-        # ocp_mask = softmax(ocp_mask, xp)
 
         prob = xp.max(y_cls, axis=1)
         pred = xp.argmax(y_cls, axis=1)
-        # cp_prob = xp.max(cp_mask, axis=1)
-        # ocp_prob = xp.max(ocp_mask, axis=1)
-        # cp_pred = xp.argmax(cp_mask, axis=1)
-        # ocp_pred = xp.argmax(ocp_mask, axis=1)
-
-        # cp_pred_mask = ((cp_prob > self.cp_eps) * cp_pred).astype(numpy.bool)
-        # ocp_pred_mask = ((ocp_prob > self.cp_eps) * ocp_pred).astype(numpy.bool)
 
         # threshold
         pred[prob < self.eps] = 0
@@ -64,6 +148,7 @@ class DualCenterProposalAccuracy(function.Function):
         estimated_R = xp.empty((batch_size, n_class, 3, 3))
         penalty = xp.array([20, 20, 20])
         pred_mask_tmp = pred_mask
+
         ## check dual cp distance sanity
         if self.distance_sanity:
             dist_cp = xp.linalg.norm(y_cp.reshape(batch_size, 3, -1), axis=1)
@@ -84,7 +169,8 @@ class DualCenterProposalAccuracy(function.Function):
                 else:
                     ## First of All, Calculate Center point directly
                     prob_weight = (pmask * prob[i_b]) / xp.sum(pmask * prob[i_b])
-                    estimated_cp[i_b, i_c] = xp.sum((prob_weight * (y_cp[i_b] + t_pc[i_b])).reshape(3, -1), axis=1)
+                    estimated_cp[i_b, i_c] = xp.sum(
+                        (prob_weight * (y_cp[i_b] + t_pc[i_b])).reshape(3, -1), axis=1)
 
                     y_cp_nonzero = (y_cp[i_b] + t_pc[i_b]).reshape(3, -1)[:, pmask.ravel()]
                     y_cp_mean = xp.mean(y_cp_nonzero, axis=1)
@@ -95,104 +181,17 @@ class DualCenterProposalAccuracy(function.Function):
                     cp_mask = (xp.linalg.norm(cp_demean, axis=0) < cp_std * 3)
 
                     y_cp_nonzero = (y_cp[i_b] + t_pc[i_b]).reshape(3, -1)[:, pmask.ravel()][:, cp_mask]
-
                     t_pc_nonzero = t_pc[i_b].reshape(3,-1)[:, pmask.ravel()][:, cp_mask]
-                    t_pc_mean = xp.mean(t_pc_nonzero, axis=1)
-                    t_pc_demean = t_pc_nonzero - t_pc_mean[:,numpy.newaxis]
-
                     y_ocp_nonzero = y_ocp[i_b].reshape(3,-1)[:, pmask.ravel()][:, cp_mask]
-                    y_ocp_mean = xp.mean(y_ocp_nonzero, axis=1)
-                    y_ocp_demean = y_ocp_nonzero - y_ocp_mean[:,numpy.newaxis]
 
-                    # t_ocp_nonzero = t_ocp[i_b].reshape(3,-1)[:, pmask.ravel()][:,cp_mask]
-
-                    y_cp_nonzero = (y_cp[i_b] + t_pc[i_b]).reshape(3, -1)[:, pmask.ravel()][:, cp_mask]
                     y_cp_nonzero2 = y_cp[i_b].reshape(3,-1)[:, pmask.ravel()][:,cp_mask]
 
                     if self.method == 'SVD':
-                        ## iterative SVD
-                        diff_mask = xp.ones(t_pc_nonzero.shape[1]).astype(numpy.bool)
-                        R = xp.empty((3,3))
-                        for j in six.moves.range(2):
-                            if xp.sum(diff_mask) >= 3:
-                                y_ocp_nonzero = y_ocp_nonzero[:, diff_mask]
-                                y_ocp_mean = xp.mean(y_ocp_nonzero, axis=1)
-                                y_ocp_demean = y_ocp_nonzero - y_ocp_mean[:,numpy.newaxis]
-
-                                t_pc_nonzero = t_pc_nonzero[:, diff_mask]
-                                t_pc_mean = xp.mean(t_pc_nonzero, axis=1)
-                                t_pc_demean = t_pc_nonzero - t_pc_mean[:,numpy.newaxis]
-
-                                R = calc_rot_by_svd(t_pc_demean, y_ocp_demean, xp)
-                                estimated_ocp[i_b, i_c] = t_pc_mean - xp.dot(R, y_ocp_mean)
-
-                                diff = t_pc_demean - xp.dot(R, y_ocp_demean)
-                                diff_var = xp.sqrt(xp.var(diff))
-                                diff_mask = (xp.linalg.norm(diff, axis=0) < diff_var * 1.96).astype(numpy.bool)
-
-                        # print R
-                        # print "--"
-                        # print xp.sum(diff_mask)
-                        # print xp.sum(test_mask)
-                        # print xp.sum(diff_mask * test_mask)
-
-                        # print xp.mean(t_pc_demean - xp.dot(R, y_ocp_demean), axis = 1)
-                        # print xp.max(xp.abs(t_pc_demean - xp.dot(R, y_ocp_demean)), axis=1)
-                        # print xp.sqrt(xp.var(t_pc_demean - xp.dot(R, y_ocp_demean), axis=1))
+                        estimated_ocp[i_b, i_c], R = svd_estimation(y_ocp_nonzero, t_pc_nonzero, xp)
 
                     elif self.method == "RANSAC":
-                        # thre = xp.sqrt(xp.sum(xp.var(y_cp_nonzero - y_cp_mean[:, numpy.newaxis], axis=1)))
-
-                        n_ransac = 50
-                        max_cnt = -1
-                        max_inlier_mask = xp.empty(t_pc_nonzero.shape[1])
-
-                        rand_sample = xp.array(
-                            numpy.random.randint(0, len(max_inlier_mask), (n_ransac, 3)))
-
-                        _R = xp.empty((3,3))
-                        _t = xp.empty(3)
-
-                        random_ocp = y_ocp_nonzero[:,rand_sample]
-                        random_ocp_mean = xp.mean(random_ocp, axis=2)
-
-                        random_pc = t_pc_nonzero[:, rand_sample]
-                        random_pc_mean = xp.mean(random_pc, axis=2)
-
-                        for i_ransac in six.moves.range(n_ransac):
-                            random_ocp_demean = random_ocp[:, i_ransac] \
-                                                - random_ocp_mean[:, i_ransac]
-                            random_pc_demean = random_pc[:, i_ransac] \
-                                               - random_pc_mean[:, i_ransac]
-
-                            _R = calc_rot_by_svd(random_pc_demean, random_ocp_demean, xp)
-                            _t = random_pc_mean[:, i_ransac] - xp.dot(_R, random_ocp_mean[:, i_ransac])
-
-                            ## count inliers
-                            # thre = xp.std(
-                            #     t_pc_demean - xp.dot(_R, y_ocp_demean), axis=1)[:, numpy.newaxis]
-                            thre = 0.025
-                            inlier_mask3d = (
-                                xp.abs(t_pc_nonzero - xp.dot(_R, y_ocp_nonzero) \
-                                       - _t[:, numpy.newaxis]) < thre * 2)
-                            inlier_mask = xp.sum(inlier_mask3d, axis=0)
-                            inlier_mask = (inlier_mask == 3)
-                            cnt = xp.sum(inlier_mask)
-                            if cnt > max_cnt:
-                                max_cnt = cnt
-                                max_inlier_mask = inlier_mask
-
-                        y_ocp_nonzero = y_ocp_nonzero[:, max_inlier_mask]
-                        y_ocp_mean = xp.mean(y_ocp_nonzero, axis=1)
-                        y_ocp_demean = y_ocp_nonzero - y_ocp_mean[:,numpy.newaxis]
-
-                        t_pc_nonzero = t_pc_nonzero[:, max_inlier_mask]
-                        t_pc_mean = xp.mean(t_pc_nonzero, axis=1)
-                        t_pc_demean = t_pc_nonzero - t_pc_mean[:,numpy.newaxis]
-
-                        R = calc_rot_by_svd(t_pc_demean, y_ocp_demean, xp)
-                        estimated_ocp[i_b, i_c] = t_pc_mean - xp.dot(R, y_ocp_mean)
-
+                        estimated_ocp[i_b, i_c], R = ransac_estimation(y_ocp_nonzero,
+                                                                       t_pc_nonzero, xp, n_ransac=50)
                     elif self.method == "DUAL":
                         # print y_cp_nonzero.shape
                         diff_norm = xp.linalg.norm(y_cp_nonzero2, axis=0) - xp.linalg.norm(y_ocp_nonzero, axis=0)
@@ -200,25 +199,7 @@ class DualCenterProposalAccuracy(function.Function):
                         estimated_ocp[i_b, i_c] = xp.sum(weight[numpy.newaxis, :] * y_cp_nonzero, axis=1)
                         R = calc_rot_by_svd(y_cp_nonzero2, y_ocp_nonzero, xp)
 
-        match_cnt = 0.0
-        ret_cp = 0.0
-        ret_ocp = 0.0
-        ret_rot = 0.0
-
-        for i_b in six.moves.range(batch_size):
-            for i_c in six.moves.range(1, n_class):
-                if xp.linalg.norm(estimated_cp[i_b, i_c] - penalty) > 0.001 \
-                   and xp.linalg.norm(t_cp[i_b, i_c]) != 0:
-                    match_cnt += 1.0
-                    ret_cp += xp.linalg.norm(estimated_cp[i_b, i_c] - t_cp[i_b, i_c])
-                    ret_ocp += xp.linalg.norm(estimated_ocp[i_b, i_c] - t_cp[i_b, i_c])
-        if match_cnt > 0:
-            ret_cp /= match_cnt
-            ret_ocp /= match_cnt
-        else:
-            ret_cp = xp.linalg.norm(penalty)
-            ret_ocp = xp.linalg.norm(penalty)
-            ret_rot = 180
+        ret_cp, ret_ocp = calc_accuracy_impl(estimated_cp, estimated_ocp, t_cp, batch_size, n_class, xp)
 
         return xp.asarray(ret_cp, dtype=y_cp.dtype), xp.asarray(ret_ocp, dtype=y_ocp.dtype),
 
