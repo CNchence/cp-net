@@ -34,28 +34,20 @@ class DualCPNetDataset(dataset.DatasetMixin):
 
         self.objs = ['Ape', 'Can', 'Cat', 'Driller', 'Duck', 'Eggbox', 'Glue', 'Holepuncher']
 
-        # get GT poses
-        self.gt_poses = []
-        gt_poses_mask = os.path.join(self.base_path, 'poses', '{0}', '*.txt')
-        for obj in self.objs:
-            gt_fpaths = sorted(glob.glob(gt_poses_mask.format(obj)))
-            gt_poses_obj = []
-            for gt_fpath in gt_fpaths:
-                gt_poses_obj.append(
-                    inout.load_gt_pose_dresden(gt_fpath))
-                self.gt_poses.append(gt_poses_obj)
+        self.ver2 = ver2
 
     def __len__(self):
         return len(self.data_indices)
 
     def _get_pose(self, idx):
-        ret_pos = np.zeros((self.n_class, 3))
-        ret_rot = np.zeros((self.n_class, 3, 3))
+        ret_pos = np.zeros((self.n_class - 1, 3))
+        ret_rot = np.zeros((self.n_class - 1, 3, 3))
+        fpath = os.path.join(self.base_path, "poses", '{0}', 'info_{1:0>5}.txt')
         for obj_id, obj in enumerate(self.objs):
-            pose = self.gt_poses[obj_id + 1][int(idx)]
+            pose = inout.load_gt_pose_dresden(fpath.format(obj, idx))
             if pose['R'].size != 0 and pose['t'].size != 0:
-                ret_pos[obj_id + 1] = pose['t'].ravel()
-                ret_rot[obj_id + 1] = pose['R']
+                ret_pos[obj_id] = pose['t'].ravel()
+                ret_rot[obj_id] = pose['R']
         return ret_pos, ret_rot
 
 
