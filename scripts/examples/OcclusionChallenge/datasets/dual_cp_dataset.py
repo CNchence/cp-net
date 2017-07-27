@@ -41,13 +41,14 @@ class DualCPNetDataset(dataset.DatasetMixin):
         ret_pos = np.zeros((self.n_class - 1, 3))
         ret_rot = np.zeros((self.n_class - 1, 3, 3))
         fpath = os.path.join(self.base_path, "poses", '{0}', 'info_{1:0>5}.txt')
+        flip_z = np.diag((1, 1, -1))
         for obj_id, obj in enumerate(self.objs):
             pose = inout.load_gt_pose_dresden(fpath.format(obj, idx))
             if pose['R'].size != 0 and pose['t'].size != 0:
-                ret_pos[obj_id] = pose['t'].ravel()
-                ret_rot[obj_id] = pose['R']
+                # convert obj->camera coordinates to camera->obj coordinates
+                ret_pos[obj_id] = pose['t'].ravel() * np.array([-1, -1, 1]) # because original data use negative z-axis
+                ret_rot[obj_id] = np.linalg.inv(flip_z.dot(pose['R']))
         return ret_pos, ret_rot
-
 
     def _get_mask(self, idx, path):
         ret = []
