@@ -49,14 +49,14 @@ class DualCenterProposalNetworkRes50_predict7(chainer.Chain):
             bn_cp2 = L.BatchNormalization(512),
             upscore_cp1 = L.Deconvolution2D(512, 128, 8, stride=4, pad=2),
             bn_cp3 = L.BatchNormalization(128),
-            upscore_cp2 = L.Deconvolution2D(128, n_class * 3, 4, stride=2, pad=1),
+            upscore_cp2 = L.Deconvolution2D(128, (n_class - 1) * 3, 4, stride=2, pad=1),
 
             # origin center pose network
             conv_ocp2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
             bn_ocp2 = L.BatchNormalization(512),
             upscore_ocp1 = L.Deconvolution2D(512, 128, 8, stride=4, pad=2),
             bn_ocp3 = L.BatchNormalization(128),
-            upscore_ocp2 = L.Deconvolution2D(128, n_class * 3, 4, stride=2, pad=1),
+            upscore_ocp2 = L.Deconvolution2D(128, (n_class - 1) * 3, 4, stride=2, pad=1),
         )
 
     def __call__(self, x1):
