@@ -69,9 +69,6 @@ class DualCPNetDataset(dataset.DatasetMixin):
     def get_example(self, i):
         ii = self.data_indices[i]
         img_rgb, masks, pc, pos, rot = self.load_orig_data(ii)
-        #
-        ## todo random crop
-        #
 
         if self.random:
             img_rgb = preprocess_utils.add_noise(img_rgb)
