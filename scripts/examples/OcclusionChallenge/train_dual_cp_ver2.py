@@ -62,7 +62,7 @@ def main():
                         help='Number of sweeps over the dataset to train')
     parser.add_argument('--gpu', '-g', type=int, default=-1,
                         help='GPU ID (negative value indicates CPU)')
-    parser.add_argument('--out', '-o', default='dual_cp_result',
+    parser.add_argument('--out', '-o', default='results/dual_cp_ver2',
                         help='Directory to output the result')
     parser.add_argument('--resume', '-r', default='',
                         help='Resume the training from snapshot')
@@ -96,7 +96,7 @@ def main():
                                                                         pretrained_model= not args.train_resnet),
                                 method="RANSAC",
                                 distance_sanity=distance_sanity,
-                                compute_accuracy=False)
+                                compute_accuracy=True, ver2=True)
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
