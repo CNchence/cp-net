@@ -1,4 +1,5 @@
 import numpy as np
+import quaternion
 import six
 
 from chainer import cuda
@@ -81,46 +82,53 @@ def ransac_estimation(y_ocp_nonzero, t_pc_nonzero, n_ransac=50):
     return ret_cp, ret_R
 
 
-def calc_accuracy_impl(estimated_cp, estimated_ocp, t_cp, batch_size, n_class):
+def calc_accuracy_impl(estimated_cp, estimated_ocp, estimated_R,
+                       t_cp, t_rot, batch_size, n_class):
     match_cnt = 0.0
     cp_acc = 0.0
     ocp_acc = 0.0
     rot_acc = 0.0
     penalty = np.array([20, 20, 20])
-
     for i_b in six.moves.range(batch_size):
-        for i_c in six.moves.range(1, n_class):
+        for i_c in six.moves.range(n_class - 1):
             if np.linalg.norm(estimated_cp[i_b, i_c] - penalty) > 0.001 \
                and np.linalg.norm(t_cp[i_b, i_c]) != 0:
                 match_cnt += 1.0
                 cp_acc += np.linalg.norm(estimated_cp[i_b, i_c] - t_cp[i_b, i_c])
                 ocp_acc += np.linalg.norm(estimated_ocp[i_b, i_c] - t_cp[i_b, i_c])
+                quat = quaternion.from_rotation_matrix(
+                    np.dot(estimated_R[i_b, i_c], np.linalg.inv(t_rot[i_b, i_c])))
+                diff_angle = np.rad2deg(np.arccos(quat.w) * 2)
+                diff_angle = min(abs(diff_angle), 360 - abs(diff_angle))
+                rot_acc += np.linalg.norm(diff_angle)
 
     if match_cnt > 0:
         cp_acc /= match_cnt
         ocp_acc /= match_cnt
+        rot_acc /= match_cnt
     else:
         cp_acc = np.linalg.norm(penalty)
         ocp_acc = np.linalg.norm(penalty)
         rot_acc = 180
-
-    return cp_acc, ocp_acc
+    return cp_acc, ocp_acc, rot_acc
 
 class DualCenterProposalAccuracy(function.Function):
 
     ## Support multi-class, one instance per one class
 
     def __init__(self, eps=0.2, cp_eps=0.7,
-                 distance_sanity=0.1, method="SVD", ver2=False):
+                 distance_sanity=0.1, min_distance=0.015,
+                 method="SVD", ver2=False):
         self.eps = eps
         self.cp_eps = cp_eps
         self.distance_sanity = distance_sanity
+        self.min_distance = min_distance
         self.method = method
         self.ver2 = ver2
 
     def forward(self, inputs):
         y_cls, y_cp, y_ocp, t_cp, t_rot, t_pc = inputs
-
+        ## gpu to cpu
         if cuda.get_array_module(*inputs) != np:
             y_cls = cuda.to_cpu(y_cls)
             y_cp = cuda.to_cpu(y_cp)
@@ -141,23 +149,23 @@ class DualCenterProposalAccuracy(function.Function):
         # probability threshold
         pred[prob < self.eps] = 0
 
-        masks = np.zeros_like(y_cls)
+        masks = np.zeros((batch_size, n_class - 1, img_h, img_w))
         for i_b in six.moves.range(batch_size):
-            for i_c in six.moves.range(1, n_class):
-                masks[i_b, i_c] = (pred[i_b] == i_c)
+            for i_c in six.moves.range(n_class - 1):
+                masks[i_b, i_c] = (pred[i_b] == i_c + 1)
 
         # with nonnan_mask
         pred_mask = np.invert(np.isnan(t_pc[:,0,:]))
 
         t_pc[t_pc != t_pc] = 0
-        estimated_cp = np.empty((batch_size, n_class, 3))
-        estimated_ocp = np.empty((batch_size, n_class, 3))
-        estimated_R = np.empty((batch_size, n_class, 3, 3))
+        estimated_cp = np.empty((batch_size, n_class - 1, 3))
+        estimated_ocp = np.empty((batch_size, n_class - 1, 3))
+        estimated_R = np.empty((batch_size, n_class - 1, 3, 3))
         penalty = np.array([20, 20, 20])
 
         if self.ver2:
-            y_cp = masks[:, :, np.newaxis, :, :] * y_cp.reshape(batch_size, n_class, 3, img_h, img_w)
-            y_ocp = masks[:, :, np.newaxis, :, :] * y_ocp.reshape(batch_size, n_class, 3, img_h, img_w)
+            y_cp = masks[:, :, np.newaxis, :, :] * y_cp.reshape(batch_size, n_class - 1, 3, img_h, img_w)
+            y_ocp = masks[:, :, np.newaxis, :, :] * y_ocp.reshape(batch_size, n_class - 1, 3, img_h, img_w)
             y_cp = np.sum(y_cp, axis=1)
             y_ocp = np.sum(y_ocp, axis=1)
 
@@ -168,21 +176,29 @@ class DualCenterProposalAccuracy(function.Function):
             dist_mask = (np.abs(dist_cp - dist_ocp) < self.distance_sanity)
             pred_mask = pred_mask * dist_mask
 
-        pred_mask = masks * pred_mask[:, np.newaxis, :, :]
+        ## minimum distance threshold
+        if self.min_distance:
+            dist_cp = np.linalg.norm(y_cp, axis=1)
+            dist_ocp = np.linalg.norm(y_ocp, axis=1)
+            min_cp_mask = (dist_cp > self.min_distance)
+            min_ocp_mask = (dist_ocp > self.min_distance)
+            pred_mask = pred_mask * min_cp_mask * min_ocp_mask
 
+        pred_mask = masks * pred_mask[:, np.newaxis, :, :]
         ## First of All, Calculate Center point directly
-        prob_weight = (pred_mask * y_cls) / (1e-15 + np.sum(
-            (pred_mask * y_cls).reshape(batch_size, n_class, -1), axis=2)[:, :, np.newaxis, np.newaxis])
+        prob_weight = (pred_mask * y_cls[:, 1:])
+        prob_weight = prob_weight / (1e-15 + np.sum(
+            prob_weight.reshape(batch_size, n_class - 1, -1), axis=2)[:, :, np.newaxis, np.newaxis])
         estimated_cp = np.sum(
             (prob_weight[:, :, np.newaxis, :, :] * \
-             (y_cp + t_pc)[:, np.newaxis, :, :, :]).reshape(batch_size, n_class, 3, -1), axis=3)
+             (y_cp + t_pc)[:, np.newaxis, :, :, :]).reshape(batch_size, n_class - 1, 3, -1), axis=3)
 
         y_cp_reshape = (y_cp + t_pc).reshape(batch_size, 3, -1)
-        t_pc_reshape = t_pc.reshape(batch_size, 3,-1)
-        y_ocp_reshape = y_ocp.reshape(batch_size, 3,-1)
-
+        t_pc_reshape = t_pc.reshape(batch_size, 3, -1)
+        y_ocp_reshape = y_ocp.reshape(batch_size, 3, -1)
+        # print np.sum(pred_mask.reshape(batch_size, n_class -1, -1), axis=2)
         for i_b in six.moves.range(batch_size):
-            for i_c in six.moves.range(1, n_class):
+            for i_c in six.moves.range(n_class - 1):
                 if np.sum(pred_mask[i_b, i_c]) < 50:
                     estimated_cp[i_b, i_c] = penalty
                     estimated_ocp[i_b, i_c] = penalty
@@ -200,22 +216,26 @@ class DualCenterProposalAccuracy(function.Function):
                     y_ocp_nonzero = y_ocp_reshape[i_b][:, pmask][:, cp_mask]
 
                     if self.method == 'SVD':
-                        estimated_ocp[i_b, i_c], R = svd_estimation(y_ocp_nonzero, t_pc_nonzero)
+                        estimated_ocp[i_b, i_c], estimated_R[i_b, i_c] = svd_estimation(y_ocp_nonzero, t_pc_nonzero)
 
                     elif self.method == "RANSAC":
-                        estimated_ocp[i_b, i_c], R = ransac_estimation(y_ocp_nonzero,
-                                                                       t_pc_nonzero, n_ransac=50)
+                        estimated_ocp[i_b, i_c], estimated_R[i_b, i_c] = ransac_estimation(y_ocp_nonzero,
+                                                                                           t_pc_nonzero, n_ransac=50)
                     elif self.method == "DUAL":
                         y_cp_nonzero = y_cp_reshape[i_b][:, pmask][:, cp_mask]
-                        y_cp_nonzero2 = y_cp_reshape - t_pc_reshape
-                        diff_norm = np.linalg.norm(y_cp_nonzero2, axis=0) - np.linalg.norm(y_ocp_nonzero, axis=0)
-                        weight = np.exp(- diff_norm) / np.sum(np.exp(- diff_norm))
-                        estimated_ocp[i_b, i_c] = np.sum(weight[np.newaxis, :] * y_cp_nonzero, axis=1)
-                        R = calc_rot_by_svd(y_cp_nonzero2, y_ocp_nonzero)
+                        y_cp_nonzero2 = (y_cp_reshape - t_pc_reshape)[i_b][:, pmask][:, cp_mask]
+                        t_pc_nonzero =  t_pc_reshape[i_b][:, pmask][:, cp_mask]
 
-        ret_cp, ret_ocp = calc_accuracy_impl(estimated_cp, estimated_ocp, t_cp, batch_size, n_class)
+                        # diff_norm = np.linalg.norm(y_cp_nonzero2, axis=0) - np.linalg.norm(y_ocp_nonzero, axis=0)
+                        # weight = np.exp(- diff_norm) / np.sum(np.exp(- diff_norm))
 
-        return np.asarray(ret_cp, dtype=y_cp.dtype), np.asarray(ret_ocp, dtype=y_ocp.dtype),
+                        estimated_R[i_b, i_c] = calc_rot_by_svd(- y_cp_nonzero2, y_ocp_nonzero)
+                        cp_concat = np.hstack([y_cp_nonzero, t_pc_nonzero + np.dot(estimated_R[i_b, i_c], - y_ocp_nonzero)])
+                        estimated_ocp[i_b, i_c] = np.mean(cp_concat, axis=1)
+
+        ret_cp, ret_ocp, ret_rot = calc_accuracy_impl(estimated_cp, estimated_ocp, estimated_R, t_cp, t_rot, batch_size, n_class)
+
+        return np.asarray(ret_cp, dtype=y_cp.dtype), np.asarray(ret_ocp, dtype=y_ocp.dtype), np.asarray(ret_rot, dtype=y_ocp.dtype)
 
 
 def dual_cp_accuracy(y_cls, y_cp, y_ocp, t_cp, t_rot, t_pc,
