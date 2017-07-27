@@ -148,9 +148,9 @@ def main():
     trainer.extend(extensions.PrintReport(
 
         ['epoch',  'main/l_cls',  'main/l_cp', 'main/l_ocp',
-         'main/cls_acc', 'main/cp_acc', 'main/ocp_acc',
+         'main/cls_acc', 'main/cp_acc', 'main/ocp_acc', 'main/rot_acc',
          'val/main/l_cls',  'val/main/l_cp', 'val/main/l_ocp',
-         'val/main/cls_acc', 'val/main/cp_acc', 'val/main/ocp_acc',
+         'val/main/cls_acc', 'val/main/cp_acc', 'val/main/ocp_acc', 'val/main/rot_acc',
          'elapsed_time']))
 
     # Print a progress bar to stdout
