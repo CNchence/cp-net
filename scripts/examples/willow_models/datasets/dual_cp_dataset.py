@@ -15,7 +15,7 @@ class DualCPNetDataset(dataset.DatasetMixin):
     def __init__(self, path, class_indices, view_indices, img_size=(256, 192),
                  random=True, random_flip=False, random_resize=False):
         self.base = path
-        self.n_class = len(class_indices)
+        self.n_class = len(class_indices) ## number of object class, except background
         self.n_view = len(view_indices)
         self.class_indices = class_indices
         self.view_indices = view_indices
@@ -138,11 +138,11 @@ class DualCPNetDataset(dataset.DatasetMixin):
         ## nonnan mask
         nonnan_mask = np.invert(np.isnan(pc[0])).astype(np.float32)
 
-        pos_arr = np.zeros((self.n_class + 1, 3))
-        pos_arr[c_i] = pos
+        pos_arr = np.zeros((self.n_class, 3))
+        pos_arr[c_i - 1] = pos
 
-        rot_arr = np.zeros((self.n_class + 1, 3, 3))
-        rot_arr[c_i] = rot
+        rot_arr = np.zeros((self.n_class, 3, 3))
+        rot_arr[c_i - 1] = rot
 
         # print "============"
         # print rot3
