@@ -39,24 +39,24 @@ class DualCenterProposalNetworkRes50_predict7(chainer.Chain):
 
             score_pool = L.Convolution2D(512 * 3, n_class, 1, stride=1, pad=0),
 
-            upscore_final=L.Deconvolution2D(self.n_class, self.n_class, 16, stride=8, pad=4),
+            upscore_final=L.Deconvolution2D(self.n_class, self.n_class, 8, stride=4, pad=2),
 
             conv_cp1 = L.Convolution2D(512 * 3, 1024, 3, stride=1, pad=1),
             bn_cp1 = L.BatchNormalization(1024),
 
             # center pose network
-            conv_cp2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
-            bn_cp2 = L.BatchNormalization(512),
-            upscore_cp1 = L.Deconvolution2D(512, 128, 8, stride=4, pad=2),
-            bn_cp3 = L.BatchNormalization(128),
-            upscore_cp2 = L.Deconvolution2D(128, (n_class - 1) * 3, 4, stride=2, pad=1),
+            conv_cp2 = L.Convolution2D(1024, 256, 3, stride=1, pad=1),
+            bn_cp2 = L.BatchNormalization(256),
+            upscore_cp1 = L.Deconvolution2D(256, (n_class - 1) * 6, 4, stride=2, pad=1),
+            bn_cp3 = L.BatchNormalization((n_class - 1) * 6),
+            upscore_cp2 = L.Deconvolution2D((n_class - 1) * 6, (n_class - 1) * 3, 4, stride=2, pad=1),
 
             # origin center pose network
-            conv_ocp2 = L.Convolution2D(1024, 512, 3, stride=1, pad=1),
-            bn_ocp2 = L.BatchNormalization(512),
-            upscore_ocp1 = L.Deconvolution2D(512, 128, 8, stride=4, pad=2),
-            bn_ocp3 = L.BatchNormalization(128),
-            upscore_ocp2 = L.Deconvolution2D(128, (n_class - 1) * 3, 4, stride=2, pad=1),
+            conv_ocp2 = L.Convolution2D(1024, 256, 3, stride=1, pad=1),
+            bn_ocp2 = L.BatchNormalization(256),
+            upscore_ocp1 = L.Deconvolution2D(256, (n_class - 1) * 6, 4, stride=2, pad=1),
+            bn_ocp3 = L.BatchNormalization((n_class - 1) * 6),
+            upscore_ocp2 = L.Deconvolution2D((n_class - 1) * 6, (n_class - 1) * 3, 4, stride=2, pad=1),
         )
 
     def __call__(self, x1):
