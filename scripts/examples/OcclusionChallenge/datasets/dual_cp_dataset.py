@@ -7,6 +7,7 @@ from chainer import dataset
 
 import random
 import numpy as np
+import quaternion
 import cv2
 import six
 
@@ -20,6 +21,7 @@ class DualCPNetDataset(dataset.DatasetMixin):
     def __init__(self, path, data_indices, img_height = 480, img_width = 640,
                  n_class=9,
                  random=False, random_crop=False, random_flip=False, random_resize=False,
+                 train_output_scale=1.0,
                  ver2=False):
         self.base_path = path
         self.n_class = n_class
@@ -41,20 +43,24 @@ class DualCPNetDataset(dataset.DatasetMixin):
         ret_pos = np.zeros((self.n_class - 1, 3))
         ret_rot = np.zeros((self.n_class - 1, 3, 3))
         fpath = os.path.join(self.base_path, "poses", '{0}', 'info_{1:0>5}.txt')
-        flip_z = np.diag((1, 1, -1))
         for obj_id, obj in enumerate(self.objs):
             pose = inout.load_gt_pose_dresden(fpath.format(obj, idx))
             if pose['R'].size != 0 and pose['t'].size != 0:
                 # convert obj->camera coordinates to camera->obj coordinates
-                ret_pos[obj_id] = pose['t'].ravel() * np.array([-1, -1, 1]) # because original data use negative z-axis
-                ret_rot[obj_id] = np.linalg.inv(flip_z.dot(pose['R']))
+                ret_pos[obj_id] = pose['t'].ravel() ##* np.array([-1, -1, 1]) # because original data use negative z-axis
+                # u, s, v = np.linalg.svd(pose['R'])
+                # ret_rot[obj_id] = np.dot(u, v).T
+                # quat = quaternion.from_rotation_matrix(pose['R'])
+                # quat.z *= -1.0
+                # ret_rot[obj_id] = quaternion.as_rotation_matrix(quat)
+                ret_rot[obj_id] = pose['R']
         return ret_pos, ret_rot
 
     def _get_mask(self, idx, path):
         ret = []
         for obj in self.objs:
             mask = cv2.imread(
-                os.path.join(path, "mask", 'mask_{0:0>5}_{1}.png'.format(idx, obj)))
+                os.path.join(path, "mask_inpaint", 'mask_{0:0>5}_{1}.png'.format(idx, obj)))
             ret.append(mask)
         return ret
 
@@ -69,6 +75,12 @@ class DualCPNetDataset(dataset.DatasetMixin):
     def get_example(self, i):
         ii = self.data_indices[i]
         img_rgb, masks, pc, pos, rot = self.load_orig_data(ii)
+
+        resize_rate = 1.0
+        if self.ver2:
+            resize_rate = 0.5
+        out_height = int(self.img_height * resize_rate)
+        out_width = int(self.img_width * resize_rate)
 
         if self.random:
             img_rgb = preprocess_utils.add_noise(img_rgb)
@@ -97,11 +109,11 @@ class DualCPNetDataset(dataset.DatasetMixin):
         #     [123.68, 116.779, 103.939], dtype=np.float32)[:, np.newaxis, np.newaxis]
         # img_rgb -= imagenet_mean
 
-        label = np.zeros((self.img_height, self.img_width))
-        masks_tmp = np.zeros((self.n_class - 1, self.img_height, self.img_width))
-        obj_mask = np.zeros((self.img_height, self.img_width))
+        label = np.zeros((out_height, out_width))
+        masks_tmp = np.zeros((self.n_class - 1, out_height, out_width))
+        obj_mask = np.zeros((out_height, out_width))
 
-        pc = cv2.resize(pc, (self.img_width, self.img_height)).transpose(2,0,1)
+        pc = cv2.resize(pc, (out_width, out_height)).transpose(2,0,1)
 
         ## nonnan mask
         nonnan_mask = np.invert(np.isnan(pc[0])).astype(np.float32)
@@ -111,27 +123,24 @@ class DualCPNetDataset(dataset.DatasetMixin):
 
         if self.ver2:
             # ver2
-            img_cp = np.zeros((self.n_class - 1, 3, self.img_height, self.img_width))
+            img_cp = np.zeros((self.n_class - 1, 3, out_height, out_width))
             img_cp = pos[:, :, np.newaxis, np.newaxis] - pc[np.newaxis, :, :, :]
-            img_ocp = np.zeros_like(img_cp)
+            img_ocp = np.empty_like(img_cp)
             for idx in six.moves.range(self.n_class - 1):
                 mask = masks[idx]
                 if mask is None:
-                    mask = np.zeros((self.img_height, self.img_width, 1))
+                    mask = np.zeros((out_height, out_width, 1))
                 mask = mask.transpose(2,0,1)[0] / 255.0  # Scale to [0, 1];
-                mask = cv2.resize(mask, (self.img_width, self.img_height))
+                mask = cv2.resize(mask, (out_width, out_height))
                 masks_tmp[idx] = mask
                 label[mask.astype(np.bool)] = idx + 1
-
-                if np.linalg.norm(pos[idx]) != 0:
-                    inv_rot = np.linalg.inv(rot[idx])
-                    img_ocp[idx] = np.dot(inv_rot, - img_cp[idx].reshape(3,-1)).reshape(img_cp[idx].shape)
-
+                img_ocp[idx] = np.dot(rot[idx].T, - img_cp[idx].reshape(3, -1)).reshape(img_cp[idx].shape)
             masks = masks_tmp.astype(np.bool)
             obj_mask = masks_tmp
 
             img_cp = img_cp * masks[:, np.newaxis, :, :]
             img_ocp = img_ocp * masks[:, np.newaxis, :, :]
+
         else:
             # ver1
             for idx in six.moves.range(self.n_class - 1):
@@ -160,7 +169,15 @@ class DualCPNetDataset(dataset.DatasetMixin):
         img_cp[img_cp != img_cp] = 0
         img_ocp[img_ocp != img_ocp] = 0
 
+        # print "---"
+        # pc[pc!=pc]=0
+        # print np.max(np.abs(pc),axis=(1,2))
+        # for idx in six.moves.range(self.n_class - 1):
+        #     print pos[idx].ravel()
+        #     print np.max(np.abs(img_cp[idx]), axis=(1,2))
+        #     print np.max(np.abs(img_ocp[idx]), axis=(1,2))
+        #     print "-"
         ## ignore nan
-        label[np.isnan(pc[0])] = -1
+        label[np.isnan(pc[0]) * (label == 0)] = -1
 
         return img_rgb, label.astype(np.int32), img_cp, img_ocp, pos, rot, pc, obj_mask.astype(np.int32), nonnan_mask
