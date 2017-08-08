@@ -85,16 +85,21 @@ class DualCPNetDataset(dataset.DatasetMixin):
         if self.random:
             img_rgb = preprocess_utils.add_noise(img_rgb)
 
+        # cropping
         if self.random_crop:
             rand_h = random.randint(0, 24)
             rand_w = random.randint(0, 32)
-            crop_h = 480 - 24
-            crop_w = 640 - 32
-            img_rgb = img_rgb[rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
-            for i in six.moves.range(len(masks)):
-                if masks[i] is not None:
-                    masks[i] = masks[i][rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
-            pc = pc[rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
+        else:
+            rand_h = 12
+            rand_w = 12
+        crop_h = 480 - 24
+        crop_w = 640 - 32
+        img_rgb = img_rgb[rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
+        for i in six.moves.range(len(masks)):
+            if masks[i] is not None:
+                masks[i] = masks[i][rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
+        pc = pc[rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
+
 
         if self.random_flip:
             rand_flip = random.randint(0,1)
