@@ -22,7 +22,7 @@ def gamma_augmentation(src, gamma=0.75):
     LUT = np.arange(256, dtype = 'uint8' )
     for i in range(256):
         LUT[i] = 255 * pow(float(i) / 255, 1.0 / gamma)
-    return cv2.LUT(src, LUT)
+    return cv2.LUT(src.astype('uint8'), LUT)
 
 
 def salt_pepper_augmentation(src, sp_rate=0.5, amount=0.004):
@@ -43,8 +43,8 @@ class ContrastAugmentation:
     def __init__(self, min_table=50, max_table=205):
         # Look Up Table(LUT)
         diff_table = max_table - min_table
-        self.LUT_HC = np.arange(256, dtype = 'uint8' )
-        self.LUT_LC = np.arange(256, dtype = 'uint8' )
+        self.LUT_HC = np.arange(256, dtype = 'uint8')
+        self.LUT_LC = np.arange(256, dtype = 'uint8')
 
         # high contrast LUT
         for i in range(0, min_table):
@@ -59,10 +59,10 @@ class ContrastAugmentation:
             self.LUT_LC[i] = min_table + i * (diff_table) / 255
 
     def high_contrast(self, src):
-        return cv2.LUT(src, self.LUT_HC)
+        return cv2.LUT(src.astype('uint8'), self.LUT_HC)
 
     def low_contrast(self, src):
-        return cv2.LUT(src, self.LUT_LC)
+        return cv2.LUT(src.astype('uint8'), self.LUT_LC)
 
 
 def calc_quaternion(rot):
