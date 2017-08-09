@@ -4,14 +4,66 @@ import numpy as np
 import cv2
 
 
-def add_noise(src):
+def add_noise(src, sigma=15):
+    src_tmp = src.copy()
     row,col,ch = src.shape
-    mean = 0
-    sigma = 15
-    gauss = np.random.normal(mean,sigma,(row,col,ch))
+    mean = 0.0
+    gauss = np.random.normal(mean, sigma, (row,col,ch))
     gauss = gauss.reshape(row,col,ch)
     gauss_img = src + gauss
     return gauss_img
+
+def avaraging(src, ksize=5):
+    average_square = (ksize, ksize)
+    return cv2.blur(src, average_square)
+
+
+def gamma_augmentation(src, gamma=0.75):
+    LUT = np.arange(256, dtype = 'uint8' )
+    for i in range(256):
+        LUT[i] = 255 * pow(float(i) / 255, 1.0 / gamma)
+    return cv2.LUT(src, LUT)
+
+
+def salt_pepper_augmentation(src, sp_rate=0.5, amount=0.004):
+    row,col,ch = src.shape
+    sp_img = src.copy()
+    # salt noise
+    num_salt = np.ceil(amount * src.size * sp_rate)
+    coords = [np.random.randint(0, i-1 , int(num_salt)) for i in src.shape]
+    sp_img[coords[:-1]] = (255,255,255)
+    # pepper noise
+    num_pepper = np.ceil(amount* src.size * (1. - sp_rate))
+    coords = [np.random.randint(0, i-1 , int(num_pepper)) for i in src.shape]
+    sp_img[coords[:-1]] = (0,0,0)
+
+    return sp_img
+
+class ContrastAugmentation:
+    def __init__(self, min_table=50, max_table=205):
+        # Look Up Table(LUT)
+        diff_table = max_table - min_table
+        self.LUT_HC = np.arange(256, dtype = 'uint8' )
+        self.LUT_LC = np.arange(256, dtype = 'uint8' )
+
+        # high contrast LUT
+        for i in range(0, min_table):
+            self.LUT_HC[i] = 0
+        for i in range(min_table, max_table):
+            self.LUT_HC[i] = 255 * (i - min_table) / diff_table
+        for i in range(max_table, 255):
+            self.LUT_HC[i] = 255
+
+        # low contrast LUT
+        for i in range(256):
+            self.LUT_LC[i] = min_table + i * (diff_table) / 255
+
+    def high_contrast(self, src):
+        return cv2.LUT(src, self.LUT_HC)
+
+    def low_contrast(self, src):
+        return cv2.LUT(src, self.LUT_LC)
+
 
 def calc_quaternion(rot):
     quat = np.zeros(4)
