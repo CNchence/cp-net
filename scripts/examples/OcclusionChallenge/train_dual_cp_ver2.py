@@ -74,14 +74,17 @@ def main():
                         help='Interval of displaying log to console')
     parser.add_argument('--frequency', '-f', type=int, default=-1,
                         help='Frequency of taking a snapshot')
-    parser.add_argument('--train_resnet', type=bool, default=True,
+    parser.add_argument('--train_resnet', type=bool, default=False,
                         help='train resnet')
+    parser.add_argument('--no-accuracy', dest='compute_acc', action='store_false')
+    parser.set_defaults(compute_acc=True)
 
     args = parser.parse_args()
 
     print('GPU: {}'.format(args.gpu))
     print('# Minibatch-size: {}'.format(args.batchsize))
     print('# epoch: {}'.format(args.epoch))
+    print('# compute accuracy: {}'.format(args.compute_acc))
     print('')
 
     n_class = 9
@@ -91,12 +94,12 @@ def main():
     distance_sanity = 0.05
 
     chainer.using_config('cudnn_deterministic', True)
-
-    model = DualCPNetClassifier(DualCenterProposalNetworkRes50_predict7(n_class=n_class, output_scale=1.0,
+    model = DualCPNetClassifier(DualCenterProposalNetworkRes50_predict7(n_class=n_class, output_scale=0.4,
                                                                         pretrained_model= not args.train_resnet),
-                                method="RANSAC",
+                                method="DUAL",
                                 distance_sanity=distance_sanity,
-                                compute_accuracy=True, ver2=True)
+                                compute_accuracy=args.compute_acc,
+                                ver2=True)
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
@@ -107,10 +110,15 @@ def main():
     optimizer.setup(model)
 
     # load train data
-    train = DualCPNetDataset(train_path, range(0, 10)[0::2], img_height = 192, img_width = 256,
-                             random=True, random_crop=True, ver2=True)
+    train = DualCPNetDataset(train_path, range(0, 1000), img_height = 384, img_width = 512,
+                             gaussian_noise=True,
+                             gamma_augmentation=True,
+                             avaraging=True,
+                             salt_pepper_noise=True,
+                             contrast=True,
+                             random_crop=False, ver2=True)
     # load test data
-    test = DualCPNetDataset(train_path, range(0, 10)[1::2], img_height = 192, img_width = 256,
+    test = DualCPNetDataset(train_path, range(1000, 1200), img_height = 384, img_width = 512,
                             ver2=True)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
@@ -146,11 +154,10 @@ def main():
         #         'epoch', file_name='accuracy.png'))
 
     trainer.extend(extensions.PrintReport(
-
         ['epoch',  'main/l_cls',  'main/l_cp', 'main/l_ocp',
-         'main/cls_acc', 'main/cp_acc', 'main/ocp_acc', 'main/rot_acc',
+         'main/cls_acc', 'main/cp_acc', 'main/ocp_acc', 'main/rot_acc', 'main/5cm5deg',
          'val/main/l_cls',  'val/main/l_cp', 'val/main/l_ocp',
-         'val/main/cls_acc', 'val/main/cp_acc', 'val/main/ocp_acc', 'val/main/rot_acc',
+         'val/main/cls_acc', 'val/main/cp_acc', 'val/main/ocp_acc', 'val/main/rot_acc', 'val/main/5cm5deg',
          'elapsed_time']))
 
     # Print a progress bar to stdout

@@ -22,13 +22,27 @@ class DualCPNetDataset(dataset.DatasetMixin):
                  n_class=9,
                  random=False, random_crop=False, random_flip=False, random_resize=False,
                  train_output_scale=1.0,
+                 gaussian_noise=False,
+                 gamma_augmentation=False,
+                 avaraging=False,
+                 salt_pepper_noise=False,
+                 contrast=False,
                  ver2=False):
         self.base_path = path
         self.n_class = n_class
         self.data_indices = data_indices
         self.img_height = img_height
         self.img_width = img_width
-        self.random = random
+
+        ## augmentation option
+        self.gaussian_noise = gaussian_noise
+        self.gamma_augmentation = gamma_augmentation
+        self.avaraging = avaraging
+        self.salt_pepper_noise =salt_pepper_noise
+        self.contrast = contrast
+        if self.contrast:
+            self.contrast_server = preprocess_utils.ContrastAugmentation()
+
         self.random_crop = random_crop
         self.random_flip = random_flip
         self.random_resize = random_resize
@@ -66,7 +80,28 @@ class DualCPNetDataset(dataset.DatasetMixin):
 
     def load_orig_data(self, idx):
         rgbd_path = os.path.join(self.base_path, "RGB-D")
-        rgb = cv2.imread(os.path.join(rgbd_path, "rgb_noseg", 'color_{0:0>5}.png'.format(idx)))
+        rgb = cv2.imread(os.path.join(rgbd_path, "rgb_noseg", 'color_{0:0>5}.png'.format(idx))) ##[:,:,::-1]
+
+        # data augmentation
+        if self.gaussian_noise and np.random.randint(0,2):
+            rgb = preprocess_utils.add_noise(rgb)
+        if self.avaraging and np.random.randint(0,2):
+            rgb = preprocess_utils.avaraging(rgb)
+        rand_gamma = np.random.randint(0, 3)
+        if self.gamma_augmentation and rand_gamma:
+            if rand_gamma - 1:
+                rgb = preprocess_utils.gamma_augmentation(rgb)
+            else:
+                rgb = preprocess_utils.gamma_augmentation(rgb, gamma=1.5)
+        if self.salt_pepper_noise and np.random.randint(0,2):
+            rgb = preprocess_utils.salt_pepper_augmentation(rgb)
+        rand_contrast = np.random.randint(0, 3)
+        if self.contrast and rand_contrast:
+            if rand_contrast - 1:
+                rgb = self.contrast_server.high_contrast(rgb)
+            else:
+                rgb = self.contrast_server.low_contrast(rgb)
+
         pc = np.load(os.path.join(rgbd_path, "xyz", 'xyz_{0:0>5}.npy'.format(idx)))
         masks = self._get_mask(idx, rgbd_path)
         pos, rot = self._get_pose(idx)
@@ -82,24 +117,17 @@ class DualCPNetDataset(dataset.DatasetMixin):
         out_height = int(self.img_height * resize_rate)
         out_width = int(self.img_width * resize_rate)
 
-        if self.random:
-            img_rgb = preprocess_utils.add_noise(img_rgb)
-
         # cropping
         if self.random_crop:
             rand_h = random.randint(0, 24)
             rand_w = random.randint(0, 32)
-        else:
-            rand_h = 12
-            rand_w = 12
-        crop_h = 480 - 24
-        crop_w = 640 - 32
-        img_rgb = img_rgb[rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
-        for i in six.moves.range(len(masks)):
-            if masks[i] is not None:
-                masks[i] = masks[i][rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
-        pc = pc[rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
-
+            crop_h = 480 - 24
+            crop_w = 640 - 32
+            img_rgb = img_rgb[rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
+            for i in six.moves.range(len(masks)):
+                if masks[i] is not None:
+                    masks[i] = masks[i][rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
+                    pc = pc[rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
 
         if self.random_flip:
             rand_flip = random.randint(0,1)
