@@ -67,7 +67,7 @@ def main():
     ax.imshow(hc_src)
 
     lc_src = ca.low_contrast(src)
-    ax = fig.add_subplot(2, 5, 0)
+    ax = fig.add_subplot(2, 5, 10)
     ax.imshow(lc_src)
 
     plt.show()
