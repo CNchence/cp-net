@@ -15,3 +15,14 @@ object pose estimation using neural network
     object01/dist_00000000.npy\
     object01/rot_00000000.npy\
     object01/pc_00000000.npy
+
+
+## requirements
+
+
+## installation glfw3
+```python
+sudo add-apt-repository ppa:keithw/glfw3
+sudo apt-get update
+sudo apt-get install libglfw3-dev
+```
