@@ -36,22 +36,21 @@ def main():
     im_size = (500, 500)
 
     # pose
-    R = np.zeros((4,3,3))
+    R = np.zeros((3,3,3))
     R[0] = transform.rotation_matrix(np.pi, (1, 0, 0))[:3, :3]
     R[1] = transform.rotation_matrix(np.pi, (1, 0.5, 0.5))[:3, :3]
     R[2] = transform.rotation_matrix(np.pi, (1, 0, 1))[:3, :3]
-    R[3] = transform.rotation_matrix(np.pi, (1, 1, 1))[:3, :3]
 
     t = np.array([[0, 0, 0.3]]).T
 
     # output fig
-    fig = plt.figure(figsize=(len(models), 4))
+    fig = plt.figure(figsize=(len(models), 3))
 
     for i in range(len(models)):
-        for j in range(4):
+        for j in range(3):
             depth = renderer.render(
                 models[i], im_size, K, R[j], t, 0.1, 2.0, mode='depth')
-            ax = fig.add_subplot(len(models), 4, i * 4 + j + 1)
+            ax = fig.add_subplot(3, len(models), i + len(models) * j + 1)
             ax.imshow(depth)
 
     plt.show()
