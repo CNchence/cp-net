@@ -44,19 +44,22 @@ class DualCenterProposalNetworkRes50_predict7(chainer.Chain):
             conv_cp1 = L.Convolution2D(512 * 3, 1024, 3, stride=1, pad=1),
             bn_cp1 = L.BatchNormalization(1024),
 
+            pool_conv = L.Convolution2D(256, (n_class - 1) * 6, 3, stride=1, pad=1),
+            bn_pool = L.BatchNormalization((n_class - 1) * 6),
+
             # center pose network
             conv_cp2 = L.Convolution2D(1024, 256, 3, stride=1, pad=1),
             bn_cp2 = L.BatchNormalization(256),
             upscore_cp1 = L.Deconvolution2D(256, (n_class - 1) * 6, 4, stride=2, pad=1),
             bn_cp3 = L.BatchNormalization((n_class - 1) * 6),
-            upscore_cp2 = L.Deconvolution2D((n_class - 1) * 6, (n_class - 1) * 3, 4, stride=2, pad=1),
+            upscore_cp2 = L.Deconvolution2D((n_class - 1) * 12, (n_class - 1) * 3, 4, stride=2, pad=1),
 
             # origin center pose network
             conv_ocp2 = L.Convolution2D(1024, 256, 3, stride=1, pad=1),
             bn_ocp2 = L.BatchNormalization(256),
             upscore_ocp1 = L.Deconvolution2D(256, (n_class - 1) * 6, 4, stride=2, pad=1),
             bn_ocp3 = L.BatchNormalization((n_class - 1) * 6),
-            upscore_ocp2 = L.Deconvolution2D((n_class - 1) * 6, (n_class - 1) * 3, 4, stride=2, pad=1),
+            upscore_ocp2 = L.Deconvolution2D((n_class - 1) * 12, (n_class - 1) * 3, 4, stride=2, pad=1),
         )
 
     def __call__(self, x1):
@@ -65,6 +68,7 @@ class DualCenterProposalNetworkRes50_predict7(chainer.Chain):
         h = F.max_pooling_2d(h, 3, stride=2)
         # Res Blocks
         h = self.res2(h) # 1/4
+        pool1_4 = h
         h = self.res3(h) # 1/8
         pool1_8 = h
         h = self.res4(h) # 1/16
@@ -88,15 +92,19 @@ class DualCenterProposalNetworkRes50_predict7(chainer.Chain):
         h = F.relu(self.upscore_final(h))
         score = h  # 1/1
 
+        pool1_4 = F.relu(self.bn_pool(self.pool_conv(pool1_4)))
+
         h_cp = F.relu(self.bn_cp1(self.conv_cp1(concat_pool)))
         h_ocp = h_cp
 
         h_cp = F.relu(self.bn_cp2(self.conv_cp2(h_cp)))
         h_cp = F.elu(self.bn_cp3(self.upscore_cp1(h_cp)))
+        h_cp = concat.concat((h_cp, pool1_4), axis=1)
         h_cp = self.upscore_cp2(h_cp)
 
         h_ocp = F.relu(self.bn_ocp2(self.conv_ocp2(h_ocp)))
         h_ocp = F.elu(self.bn_ocp3(self.upscore_ocp1(h_ocp)))
+        h_ocp = concat.concat((h_ocp, pool1_4), axis=1)
         h_ocp = self.upscore_ocp2(h_ocp)
 
         cp_score = F.tanh(h_cp) * self.output_scale
