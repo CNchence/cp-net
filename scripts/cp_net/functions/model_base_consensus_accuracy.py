@@ -240,35 +240,91 @@ class ModelBaseConsensusAccuracy(function.Function):
                  distance_sanity=0.1, min_distance=0.005,
                  base_path = '/home/oshiroy/workspace/cp-net/train_data/OcclusionChallengeICCV2015/models_pcd',
                  objs =['Ape', 'Can', 'Cat', 'Driller', 'Duck', 'Eggbox', 'Glue', 'Holepuncher'],
-                 model_partial=2,
+                 model_partial= 1,
+                 K = None,
+                 original_im_size = (640, 480),
                  method="SVD", ver2=False):
         self.eps = eps
         self.distance_sanity = distance_sanity
         self.min_distance = min_distance
         self.method = method
         self.ver2 = ver2
+        self.original_im_size = original_im_size
+
+        ## camera parm
+        if K is not None:
+            self.K = K
+        else:
+            self.K = np.array([[572.41140, 0, 325.26110],
+                               [0, 573.57043, 242.04899],
+                               [0, 0, 0]])
 
         ## for flann
         self.flann_search_idx = []
+        self.flann_search_idx_sphere = []
         self.models_pc = []
         self.objs = objs
+        pyflann.set_distance_type('euclidean')
         for obj_name in objs:
             pc = pypcd.PointCloud.from_path(
                 os.path.join(base_path, obj_name + '.pcd'))
             pc = np.asarray(pc.pc_data.tolist())[:,:3] ## only use xyz
-            pc = pc[0::model_partial, :]
             # pc = pc * np.array([1, -1, -1])[np.newaxis, :] ## negative z
             # trans = np.array([[0, -1, 0], [0, 0, -1], [1, 0, 0]])
             # pc = np.dot(trans, pc.transpose(1, 0)).transpose(1, 0)
 
             search_idx = pyflann.FLANN()
-            search_idx.build_index(pc, algorithm='kmeans',
+            search_idx.build_index(pc[0::model_partial, :], algorithm='kmeans',
                                    centers_init='kmeanspp', random_seed=1234)
             self.flann_search_idx.append(search_idx)
             self.models_pc.append(pc)
 
+            # sphere model index
+            norm_pc = np.linalg.norm(pc, axis=1, keepdims=True)
+            sphere_pc = pc / norm_pc
+            sphere_pc = np.hstack((sphere_pc, norm_pc))
+
+            search_idx_sphere = pyflann.FLANN()
+            search_idx_sphere.build_index(sphere_pc, algorithm='kmeans',
+                                          centers_init='kmeanspp', random_seed=1234)
+            self.flann_search_idx_sphere.append(search_idx_sphere)
+
+
+    def _sphere_nn_with_norm(self, x, model_idx, dist_algo='euclidean', nn=3):
+        norm_x = np.linalg.norm(x, axis=0, keepdims=True)
+        sphere_x = x / norm_x
+        sphere_x = np.vstack((sphere_x, norm_x))
+
+        ## pyflann search
+        pyflann.set_distance_type(dist_algo)
+        indices, distances = self.flann_search_idx_sphere[model_idx].nn_index(sphere_x.transpose(1, 0), nn)
+
+        return np.mean(self.models_pc[model_idx][indices], axis=2).transpose(1, 0)
+
+
+    def _refine_points_triplet(self, x, x2, x3, pc, iteration = 5):
+        ret_x = x
+        dist_map_pc = np.linalg.norm(pc[:, np.newaxis, :] - pc[:, :, np.newaxis], axis=0)
+        mask = 1 - np.diag(np.ones_like(dist_map_pc[0]))
+
+        for i in six.moves.range(iteration):
+            dist_map_x = np.linalg.norm(ret_x[:, np.newaxis, :] - x[:, :, np.newaxis], axis=0)
+            dist_map_x2 = np.linalg.norm(ret_x[:, np.newaxis, :] - x2[:, :, np.newaxis], axis=0)
+            dist_map_x3 = np.linalg.norm(ret_x[:, np.newaxis, :] - x3[:, :, np.newaxis], axis=0)
+
+            dist1 = np.sum(np.abs((dist_map_pc - dist_map_x) * mask), axis=0)
+            dist2 = np.sum(np.abs((dist_map_pc - dist_map_x2) * mask), axis=0)
+            dist3 = np.sum(np.abs((dist_map_pc - dist_map_x3) * mask), axis=0)
+
+            for j in six.moves.range(len(x)):
+                if dist2[j] < dist1[j] and dist2[j] <= dist3[j]:
+                    ret_x[:, j] = x2[:, j]
+                if dist3[j] < dist1[j] and dist3[j] < dist2[j]:
+                    ret_x[:, j] = x3[:, j]
+        return ret_x
+
     def forward(self, inputs):
-        y_cls, y_cp, y_ocp, t_ocp, t_cp, t_rot, t_pc = inputs
+        y_cls, y_cp, y_ocp, t_ocp, t_cp, t_rot, t_pc, depth, K, rgb  = inputs
         ## gpu to cpu
         if cuda.get_array_module(*inputs) != np:
             y_cls = cuda.to_cpu(y_cls)
@@ -278,6 +334,9 @@ class ModelBaseConsensusAccuracy(function.Function):
             t_cp = cuda.to_cpu(t_cp)
             t_rot = cuda.to_cpu(t_rot)
             t_pc = cuda.to_cpu(t_pc)
+            depth = cuda.to_cpu(depth)
+            K = cuda.to_cpu(K)
+            rgb = cuda.to_cpu(rgb)
 
         batch_size, n_class, img_h, img_w = y_cls.shape
 
@@ -309,7 +368,6 @@ class ModelBaseConsensusAccuracy(function.Function):
         y_ocp = masks[:, :, np.newaxis, :, :] * y_ocp.reshape(batch_size, n_class - 1, 3, img_h, img_w)
         y_cp = np.sum(y_cp, axis=1)
         y_ocp = np.sum(y_ocp, axis=1)
-
         t_ocp = masks[:, :, np.newaxis, :, :] * t_ocp.reshape(batch_size, n_class - 1, 3, img_h, img_w)
         t_ocp = np.sum(t_ocp, axis=1)
 
@@ -329,6 +387,7 @@ class ModelBaseConsensusAccuracy(function.Function):
             pred_mask = pred_mask * min_cp_mask * min_ocp_mask
 
         pred_mask = masks * pred_mask[:, np.newaxis, :, :]
+
         ## First of All, Calculate Center point directly
         prob_weight = (pred_mask * y_cls[:, 1:])
         prob_weight = prob_weight / (1e-15 + np.sum(
@@ -354,83 +413,94 @@ class ModelBaseConsensusAccuracy(function.Function):
                 cp_mask = (np.sum(cp_mask3d, axis=0) == 3)
 
                 ## flann refinement
-                num_nn = 10
+                num_nn = 2
                 # pyflann.set_distance_type('manhattan')
                 pyflann.set_distance_type('euclidean')
                 flann_ret, flann_dist = self.flann_search_idx[i_c].nn_index(y_ocp_reshape[i_b][:, pmask].transpose(1, 0), num_nn)
                 flann_ret_unique = np.unique(flann_ret.ravel())
-                flann_mask = (flann_dist[:, 0] < 1e-3)  # threshold is tmp
+                flann_mask = (flann_dist[:, 0] < 5e-3)  # threshold is tmp
 
-                flann_ret_tmp, f_d = self.flann_search_idx[i_c].nn_index(y_ocp_reshape[i_b][:, pmask].transpose(1, 0), num_nn)
-                flann_mask_ = (f_d < 1e-4)
-                flann_ret_tmp = np.unique(flann_ret.ravel())
-
-                flann_ret_t, f_d_t = self.flann_search_idx[i_c].nn_index(t_ocp_reshape[i_b][:, pmask].transpose(1, 0), num_nn)
-                flann_mask_t_ = (f_d_t < 1e-4)
-                flann_ret_t_tmp = np.unique(flann_ret_t.ravel())
-
-                flann_ocp = self.models_pc[i_c][flann_ret_unique, :] # shape (n_ocp, num_nn, 3)
-                flann_ocp = flann_ocp.transpose(1, 0)
-                flann_ocp_t = self.models_pc[i_c][flann_ret_t_tmp, :] # shape (n_ocp, num_nn, 3)
+                # flann_ocp = self.models_pc[i_c][flann_ret_unique, :] # shape (n_ocp, num_nn, 3)
+                # flann_ocp = flann_ocp.transpose(1, 0)
 
                 refine_mask = cp_mask * flann_mask
                 if np.sum(refine_mask) < 10:
                     continue
 
                 t_pc_nonzero = t_pc_reshape[i_b][:, pmask][:, refine_mask]
-                #
-                # y_ocp_nonzero = self.models_pc[i_c][flann_ret[:,0], :].transpose(1, 0)[:, refine_mask]
                 y_ocp_nonzero = y_ocp_reshape[i_b][:, pmask][:, refine_mask]
-                y_cp_nonzero = y_cp_reshape[i_b][:, pmask][:, refine_mask]
-                y_cp_nonzero2 = (y_cp_reshape - t_pc_reshape)[i_b][:, pmask][:, refine_mask]
-                t_pc_nonzero =  t_pc_reshape[i_b][:, pmask][:, refine_mask]
-                t_ocp_nonzero = t_ocp_reshape[i_b][:, pmask][:, refine_mask]
+                # y_cp_nonzero = y_cp_reshape[i_b][:, pmask][:, refine_mask]
+                # y_cp_nonzero2 = (y_cp_reshape - t_pc_reshape)[i_b][:, pmask][:, refine_mask]
 
-                y_ocp_flann = flann_ocp
-                t_ocp_flann = flann_ocp_t.transpose(1, 0)
-                ## ransac base estimation of rotation
-                tmp_R, inlier_mask = rotation_ransac(- y_cp_nonzero2, y_ocp_nonzero)
-                estimated_ocp[i_b, i_c] = np.mean(
-                        (t_pc_nonzero + np.dot(tmp_R, - y_ocp_nonzero)), axis=1)
+                # y_ocp_flann = self.models_pc[i_c][flann_ret[:,0], :].transpose(1, 0)[:, refine_mask]
 
-                # estimated_ocp[i_b, i_c] = estimated_cp[i_b, i_c]
-                t_pc_demean = (t_pc_nonzero - estimated_cp[i_b, i_c][:, np.newaxis])
+                # sphere norm
+                # y_ocp_sphere = self._sphere_nn_with_norm(y_ocp_nonzero, i_c)
 
-                tmp_R, _ = rotation_ransac(t_pc_demean, y_ocp_nonzero)
+                # t_pc_demean = (t_pc_nonzero - estimated_cp[i_b, i_c][:, np.newaxis])
+                masked_pc_nonzero = t_pc_reshape[i_b]
 
-                # tmp_R2 = icp_rotation(np.dot(tmp_R, y_ocp_flann), t_pc_demean)
-                # tmp_R = np.dot(tmp_R, tmp_R2)
-                t3 = np.zeros(3)
-                # t3, tmp_R3 = icp(np.dot(tmp_R, y_ocp_flann), t_pc_demean)
-                # tmp_R = np.dot(tmp_R, tmp_R3)
-                # print "---"
-                # print t3 - t_cp[i_b, i_c] - estimated_cp[i_b, i_c]
-                # print t_rot[i_b, i_c]
-                # estimated_R[i_b, i_c] = tmp_R3
-                estimated_R[i_b, i_c] = tmp_R
-                estimated_ocp[i_b, i_c] = estimated_cp[i_b, i_c] + t3
+                # y_concat = y_ocp_nonzero.reshape(3,1,-1)
+                # y_ocp_tmp = self._refine_points_triplet(y_ocp_nonzero, y_ocp_flann, y_ocp_sphere, t_pc_nonzero)
+                # print "--"
+                # print np.mean(np.linalg.norm(y_ocp_nonzero - t_ocp_nonzero, axis=0))
+
+                # print "--"
+                # print self.objs[i_c]
+                ret_ocp, ret_R = model_base_ransac_estimatation(t_pc_nonzero, y_ocp_nonzero, t_pc_nonzero,
+                                                                self.models_pc[i_c].transpose(1,0),
+                                                                depth[i_b], K[i_b], t_cp[i_b, i_c],
+                                                                pred_mask[i_b, i_c],
+                                                                t_rot = t_rot[i_b, i_c],
+                                                                y_repeat=1)
+                ## icp refinement
+                icp_ocp, icp_R = icp(np.dot(ret_R.T, t_pc_nonzero - ret_ocp[:, np.newaxis]),
+                                     self.models_pc[i_c].transpose(1,0),
+                                     dst_search_idx=self.flann_search_idx[i_c])
+                ret_R = np.dot(ret_R, icp_R.T)
+                ret_ocp -= np.dot(ret_R, icp_ocp)
+
+                ## icp refinement only rotation
+                # icp_R = icp_rotation(np.dot(ret_R.T, t_pc_nonzero - ret_ocp[:, np.newaxis]),
+                #                      self.models_pc[i_c].transpose(1,0))
+                # ret_R = np.dot(ret_R, icp_R.T)
+
+
+                if False:
+                    imagenet_mean = np.array(
+                        [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
+                    rgb_out = rgb[i_b].transpose(1,2,0) * 255.0 + imagenet_mean
+                    rgb_out = cv2.resize(rgb_out, (depth[i_b].shape[::-1]))
+                    cv2.imwrite("depth_rgb.jpg", rgb_out)
+
+                # pc_trans = np.dot(estimated_R[i_b, i_c].T, (t_pc_nonzero - estimated_ocp[i_b, i_c][:, np.newaxis]))
+                # _t, _R = icp_by_search_idx(pc_trans, self.models_pc[i_c].transpose(1, 0), self.flann_search_idx[i_c])
+                # estimated_R[i_b, i_c] = np.dot(estimated_R[i_b, i_c], _R.T)
+                # estimated_ocp[i_b, i_c] = estimated_ocp[i_b, i_c] - _t
 
                 # print np.mean(t_ocp_nonzero - y_ocp_nonzero, axis=1)
-                # print np.sort(np.linalg.norm(y_ocp_nonzero - t_ocp_nonzero, axis=0))
                 # np.save("test.npy", y_ocp_nonzero)
                 # np.save("test_t.npy", t_ocp_nonzero)
-                # np.save("test_flann.npy", y_ocp_flann)
-                # np.save("test_t_flann.npy", t_ocp_flann)
                 # np.save("test_model.npy", self.models_pc[i_c])
-                # np.save("test_rot.npy", np.dot(estimated_R[i_b, i_c], y_ocp_flann))
-                # np.save("test_pc.npy", t_pc_demean - t3[:, np.newaxis])
-                # print "--"
-                # print self.models_pc[i_c].shape
-                # time.sleep(0.25)
+                # np.save("test_rot.npy", np.dot(t_rot[i_b,i_c], self.models_pc[i_c].transpose(1,0)) + (t_cp[i_b, i_c] - estimated_cp[i_b, i_c])[:, np.newaxis])
+                # np.save("test_t_rot.npy", t_rot[i_b,i_c])
+                # np.save("test_pc_all.npy", (t_pc_reshape[i_b][:, pmask] - estimated_cp[i_b, i_c][:, np.newaxis]))
+                # np.save("test_pc.npy", t_pc_demean)
+
+                # time.sleep(1)
+                estimated_ocp[i_b, i_c] =  ret_ocp
+                estimated_R[i_b, i_c] = ret_R
+
 
         ret_cp, ret_ocp, ret_rot, ret_rate = calc_accuracy_impl(estimated_cp, estimated_ocp,
-                                                                estimated_R, t_cp, t_rot, batch_size, n_class, debug=False)
+                                                                estimated_R, t_cp, t_rot, batch_size,
+                                                                n_class, debug=False)
 
         return np.asarray(ret_cp, dtype=y_cp.dtype), np.asarray(ret_ocp, dtype=y_ocp.dtype), np.asarray(ret_rot, dtype=y_ocp.dtype), np.asarray(ret_rate, dtype=y_ocp.dtype)
 
 
-def model_base_consensus_accuracy(y_cls, y_cp, y_ocp, t_ocp, t_cp, t_rot, t_pc,
+def model_base_consensus_accuracy(y_cls, y_cp, y_ocp, t_ocp, t_cp, t_rot, t_pc, depth, K,
                                   eps=0.2, distance_sanity=0.1, method="SVD", ver2=False):
     return ModelBaseConsensusAccuracy(eps=eps,
                                       distance_sanity=distance_sanity,
-                                      method=method, ver2=ver2)(y_cls, y_cp, y_ocp, t_ocp, t_cp, t_rot, t_pc)
+                                      method=method, ver2=ver2)(y_cls, y_cp, y_ocp, t_ocp, t_cp, t_rot, t_pc, depth, K)
