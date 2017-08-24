@@ -149,8 +149,8 @@ def ransac_estimation(x_arr, y_arr, n_ransac=50, thre = 0.025):
     random_y_mean = np.mean(random_y, axis=2)
 
     for i_ransac in six.moves.range(n_ransac):
-        random_x_demean = random_x[:, i_ransac] - random_x_mean[:, i_ransac]
-        random_y_demean = random_y[:, i_ransac] - random_y_mean[:, i_ransac]
+        random_x_demean = random_x[:, i_ransac, :] - random_x_mean[:, i_ransac, np.newaxis]
+        random_y_demean = random_y[:, i_ransac, :] - random_y_mean[:, i_ransac, np.newaxis]
 
         _R = calc_rot_by_svd(random_y_demean, random_x_demean)
         _t = random_y_mean[:, i_ransac] - np.dot(_R, random_x_mean[:, i_ransac])
@@ -175,7 +175,7 @@ def ransac_estimation(x_arr, y_arr, n_ransac=50, thre = 0.025):
     return ret_cp, ret_R
 
 
-def rotation_ransac(y_arr, x_arr, n_ransac=50, thre=0.05):
+def rotation_ransac(y_arr, x_arr, n_ransac=100, thre=0.05):
     max_cnt = -1
     max_inlier_mask = np.empty(y_arr.shape[1])
     rand_sample = np.array(
