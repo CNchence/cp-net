@@ -14,7 +14,7 @@ from chainer.utils import type_check
 # tmp
 import time
 
-def icp(src, dst, n_iter=100):
+def icp(src, dst, dst_search_idx=None, n_iter=50, thre_precent=95):
     # input src shape = (3, num)
     # input dst shape = (3, num)
     if len(src) <= len(dst):
@@ -26,9 +26,12 @@ def icp(src, dst, n_iter=100):
 
     ## pyflann search index build
     pyflann.set_distance_type('euclidean')
-    search_idx = pyflann.FLANN()
-    search_idx.build_index(b.transpose(1, 0), algorithm='kmeans',
-                           centers_init='kmeanspp', random_seed=1234)
+    if dst_search_idx is None:
+        search_idx = pyflann.FLANN()
+        search_idx.build_index(b.transpose(1, 0), algorithm='kmeans',
+                               centers_init='kmeanspp', random_seed=1234)
+    else:
+        search_idx = dst_search_idx
 
     ## intialize for iteration
     _t = np.zeros(3)
@@ -39,19 +42,16 @@ def icp(src, dst, n_iter=100):
 
     for i in six.moves.range(n_iter):
         indices, distances = search_idx.nn_index(old_a.transpose(1, 0),  1)
+        # percentile outlier removal
+        percentile_thre = np.percentile(distances, thre_precent)
+        inlier_mask = (distances <= percentile_thre)
 
-        b_mean = np.mean(b[:, indices], axis=1)
-        b_demean = b[:, indices] - b_mean[:, np.newaxis]
+        b_mean = np.mean(b[:, indices[inlier_mask]], axis=1)
+        b_demean = b[:, indices[inlier_mask]] - b_mean[:, np.newaxis]
 
-        _R = calc_rot_by_svd(b_demean, a_demean)
+        _R = calc_rot_by_svd(b_demean, a_demean[:, inlier_mask])
         _t = b_mean - np.dot(_R, a_mean)
         new_a = np.dot(_R, a) + _t[:, np.newaxis]
-
-        # print "-"
-        # print indices - np.arange(len(indices))
-        # print np.mean(distances)
-        # print np.mean(np.abs(new_a - b[:, indices]))
-        # print np.mean(np.abs(new_a - b[:, indices]))
 
         if np.mean(np.abs(new_a - old_a)) < 1e-12:
             break
@@ -64,7 +64,7 @@ def icp(src, dst, n_iter=100):
     return _t, _R
 
 
-def icp_rotation(src, dst, n_iter=50):
+def icp_rotation(src, dst, n_iter=50, thre_precent=95):
     # input src shape = (3, num)
     # input dst shape = (3, num)
     # src = np.array(src, copy=True).astype(np.float32)
@@ -85,12 +85,11 @@ def icp_rotation(src, dst, n_iter=50):
 
     for i in six.moves.range(n_iter):
         indices, distances = search_idx.nn_index(np.dot(_R, a).transpose(1, 0).astype(np.float64), 1)
-        _R = calc_rot_by_svd(b[:, indices], a)
-        # tmp_R = calc_rot_by_svd(b, np.dot(tmp_R, src[:, indices]))
-        # _R = np.dot(_R, tmp_R)
+        percentile_thre = np.percentile(distances, thre_precent)
+        inlier_mask = (distances <= percentile_thre)
+        _R = calc_rot_by_svd(b[:, indices[inlier_mask]], a[:, inlier_mask])
 
     if len(src) > len(dst):
-        _t = - _t
         _R = _R.T
 
     return _R
