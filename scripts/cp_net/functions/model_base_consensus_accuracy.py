@@ -102,6 +102,37 @@ def calc_rot_by_svd(Y, X):
     R = np.dot(np.dot(U, H), V)
     return R
 
+
+def get_sampling_index(y_arr, x_arr, max_thre=0.03, num_sample=(50, 3), y_repeat=1):
+    ## calc sampling list
+    t = time.time()
+    dist_map_x = np.linalg.norm(x_arr[:, np.newaxis, :] - x_arr[:, :, np.newaxis], axis=0)
+    # print time.time() - t
+    dist_map_y = np.linalg.norm(y_arr[:, np.newaxis, :] - y_arr[:, :, np.newaxis], axis=0)
+    dist_map_y = np.tile(dist_map_y, (y_repeat * y_repeat)).reshape(len(dist_map_y) * y_repeat, len(dist_map_y) * y_repeat)
+    dist_map = np.abs(dist_map_x - dist_map_y)
+    # print time.time() - t
+
+    tri = np.tri((len(dist_map)))
+    dist_map = dist_map * (1 - tri) - tri
+
+    sample_idx = np.dstack(
+        np.unravel_index(np.argsort(dist_map.ravel()), (len(dist_map), len(dist_map)))).reshape(-1, 2)
+    # print time.time() - t
+    sample_split = int(len(dist_map) * (len(dist_map) - 1) * 0.5) + len(dist_map)
+    sample_idx = sample_idx[sample_split:]
+    sample_dist = dist_map[sample_idx[:, 0], sample_idx[:, 1]]
+
+    thre_idx = max(len(sample_dist[sample_dist < max_thre]), min(50, len(sample_idx)))
+
+    idx_cnt = np.bincount(sample_idx[:thre_idx].ravel())
+    idx_cnt_len = len(idx_cnt[idx_cnt >= np.median(idx_cnt)])
+    idx_sort = np.argsort(idx_cnt)[::-1]
+    # print time.time() - t
+
+    return idx_sort[np.random.randint(0, idx_cnt_len, num_sample)]
+
+
 def ransac_estimation(x_arr, y_arr, n_ransac=50, thre = 0.025):
     max_cnt = -1
     max_inlier_mask = np.empty(y_arr.shape[1])
