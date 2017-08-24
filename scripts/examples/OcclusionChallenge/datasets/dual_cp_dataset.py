@@ -20,7 +20,9 @@ class DualCPNetDataset(dataset.DatasetMixin):
 
     def __init__(self, path, data_indices, img_height = 480, img_width = 640,
                  n_class=9,
-                 random=False, random_crop=False, random_flip=False, random_resize=False,
+                 random_crop=False,
+                 dummy_crop=False,
+                 random_resize=False,
                  train_output_scale=1.0,
                  gaussian_noise=False,
                  gamma_augmentation=False,
@@ -44,7 +46,9 @@ class DualCPNetDataset(dataset.DatasetMixin):
             self.contrast_server = preprocess_utils.ContrastAugmentation()
 
         self.random_crop = random_crop
-        self.random_flip = random_flip
+        self.crop_sizeh = 24
+        self.crop_sizew = 32
+        self.dummy_crop = dummy_crop
         self.random_resize = random_resize
         self.objs = ['Ape', 'Can', 'Cat', 'Driller', 'Duck', 'Eggbox', 'Glue', 'Holepuncher']
 
@@ -101,6 +105,9 @@ class DualCPNetDataset(dataset.DatasetMixin):
                 rgb = self.contrast_server.high_contrast(rgb)
             else:
                 rgb = self.contrast_server.low_contrast(rgb)
+        imagenet_mean = np.array(
+            [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
+        rgb = rgb - imagenet_mean
 
         pc = np.load(os.path.join(rgbd_path, "xyz", 'xyz_{0:0>5}.npy'.format(idx)))
         masks = self._get_mask(idx, rgbd_path)
@@ -176,6 +183,8 @@ class DualCPNetDataset(dataset.DatasetMixin):
 
         else:
             # ver1
+            img_cp = np.empty_like(pc)
+            img_ocp = np.empty_like(pc)
             for idx in six.moves.range(self.n_class - 1):
                 mask = masks[idx]
                 if mask is None:
@@ -202,14 +211,6 @@ class DualCPNetDataset(dataset.DatasetMixin):
         img_cp[img_cp != img_cp] = 0
         img_ocp[img_ocp != img_ocp] = 0
 
-        # print "---"
-        # pc[pc!=pc]=0
-        # print np.max(np.abs(pc),axis=(1,2))
-        # for idx in six.moves.range(self.n_class - 1):
-        #     print pos[idx].ravel()
-        #     print np.max(np.abs(img_cp[idx]), axis=(1,2))
-        #     print np.max(np.abs(img_ocp[idx]), axis=(1,2))
-        #     print "-"
         ## ignore nan
         label[np.isnan(pc[0]) * (label == 0)] = -1
 
