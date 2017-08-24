@@ -11,8 +11,14 @@ from chainer import function
 import chainer.functions as F
 from chainer.utils import type_check
 
+from cp_net.utils.pointcloud_to_depth import pointcloud_to_depth
+
+
+import numba
 # tmp
 import time
+import cv2
+
 
 def icp(src, dst, dst_search_idx=None, n_iter=50, thre_precent=95):
     # input src shape = (3, num)
@@ -203,6 +209,171 @@ def rotation_ransac(y_arr, x_arr, n_ransac=100, thre=0.05):
     else:
         ret_R = calc_rot_by_svd(y_arr[:, max_inlier_mask],  x_arr[:, max_inlier_mask])
     return ret_R, max_inlier_mask
+
+
+def model_base_ransac_estimatation(y_arr, x_arr, pc, model, depth, K, t_cp,
+                                   obj_mask,
+                                   n_ransac=100,
+                                   max_thre=0.1, max_thre2=0.1, y_repeat=1, t_rot=None):
+    rand_sample = np.array(
+        np.random.randint(0, y_arr.shape[1], (n_ransac, 3)))
+    # rand_sample = get_sampling_index(y_arr, x_arr, num_sample=(n_ransac, 3), y_repeat=y_repeat)
+    # t =  time.time()
+    y_arr = np.tile(y_arr, y_repeat)
+
+    random_x = x_arr[:,rand_sample]
+    random_x_mean = np.mean(random_x, axis=2)
+    random_y = y_arr[:, rand_sample]
+    random_y_mean = np.mean(random_y, axis=2)
+
+    ret_t2 = np.zeros(3)
+    ret_R2 = np.diag((1, 1, 1))
+    min_ang = 180
+    ## intialize for iteration
+    ret_t_tri = np.zeros(3)
+    ret_R_tri = np.diag((1, 1, 1))
+    ret_t = np.zeros(3)
+    ret_R = np.diag((1, 1, 1))
+    _t = np.zeros(3)
+    _R = np.diag((1, 1, 1))
+    best_score = 1e15
+    best_score_tri = 1e15
+    tmp_score = 1e15
+    tmp_score_tri = 1e15
+    max_visib = 1e15
+    max_invisib = 1e15
+    max_visib_tmp = 1e15
+    max_invisib_tmp = 1e15
+    # print time.time() - t
+
+    obj_visib_thre = np.sum(obj_mask) * 0.5
+
+    for i_ransac in six.moves.range(n_ransac):
+        print "---"
+        tt = time.time()
+        random_x_demean = random_x[:, i_ransac, :] - random_x_mean[:, i_ransac, np.newaxis]
+        random_y_demean = random_y[:, i_ransac, :] - random_y_mean[:, i_ransac, np.newaxis]
+
+        _R = calc_rot_by_svd(random_y_demean, random_x_demean)
+        _t = random_y_mean[:, i_ransac] - np.dot(_R, random_x_mean[:, i_ransac])
+
+        dist = np.sum(np.abs(np.dot(_R, x_arr) + _t[:, np.newaxis] - y_arr), axis=0)
+        dist[dist > max_thre] = max_thre
+        score = np.mean(dist)
+        if score < best_score:
+            best_score = score
+            ret_t = _t
+            ret_R = _R
+        print time.time() - tt
+        # test
+        # grid_size = 5
+        # grid = np.arange(grid_size) * 0.0025 - 0.0025 * int(grid_size /2)
+        # depth_model = np.empty((grid_size, grid_size, grid_size, depth.shape[0], depth.shape[1]))
+        # for i, dx in enumerate(grid):
+        #     for j, dy in enumerate(grid):
+        #         for k, dz in enumerate(grid):
+        #             tmp_t = _t + np.array([dx, dy, dz])
+        #             depth_model[i,j,k] = pointcloud_to_depth((np.dot(_R, model) + tmp_t[:, np.newaxis]).transpose(1,0),
+        #                                                      K, depth.shape[::-1])
+
+        # depth_model = depth_model.reshape(-1,  depth.shape[0], depth.shape[1])
+        # mask = (depth_model != 0) * (depth != 0)[np.newaxis, :, :]
+        # score_map = (depth_model - depth[np.newaxis, :, :]) * mask
+        # score_map[score_map > max_thre] = max_thre
+        # score_map[score_map < 0] *= -0.7
+        # score_map = np.sum(score_map, axis=(-1, -2)) / np.sum(mask, axis=(-1, -2))
+
+        # score3 = np.min(score_map)
+        # minargs = np.argmin(score_map)
+        # _t = _t + grid[np.array(np.unravel_index(minargs, [grid_size, grid_size, grid_size]))]
+        # dist2 = np.sum(np.abs(np.dot(_R, x_arr) + _t[:, np.newaxis] - y_arr), axis=0)
+        # dist2[dist2 > max_thre] = max_thre
+        # score2 = np.sum(dist2) / len(dist2)
+
+
+        depth_model = pointcloud_to_depth((np.dot(_R, model) + _t[:, np.newaxis]).transpose(1,0),
+                                          K, depth.shape[::-1])
+        print time.time() -tt
+        mask = (depth_model != 0) * (depth != 0)
+        if np.sum(mask) == 0:
+            continue
+        depth_diff = depth_model - depth
+        score3_visib = np.abs(depth_diff) * (depth != 0) * obj_mask
+        if np.sum(mask * obj_mask) > obj_visib_thre:
+            score3_visib = score3_visib[np.nonzero(score3_visib)]
+            score3_visib[score3_visib > 0.1] = 0.1
+            dist_thre = np.percentile(score3_visib, 90)
+            score3_visib = np.mean(score3_visib[score3_visib <= dist_thre])
+        else:
+            continue
+        invisib_mask = mask * (1 - obj_mask)
+        score3_invisib = depth_diff * invisib_mask
+        if np.sum(invisib_mask) > 0:
+            score3_invisib = score3_invisib[np.nonzero(score3_invisib)]
+            score3_invisib[score3_invisib > 0.015] = 0
+            score3_invisib = np.abs(score3_invisib)
+            score3_invisib[score3_invisib > 0.1] = 0.1
+            dist_thre = np.percentile(score3_invisib, 90)
+            score3_invisib = np.mean(score3_invisib[score3_invisib <= dist_thre])
+        else:
+            score3_invisib = 0
+        # print "--"
+        # print score3_visib
+        # print score3_invisib
+        score_tri = score + score3_visib + score3_invisib
+        # print time.time() - tt
+        if score_tri < best_score_tri:
+            best_score_tri = score_tri
+            max_visib = score3_visib
+            max_invisib = score3_invisib
+            ret_t_tri = _t
+            ret_R_tri = _R
+        print time.time() -tt
+        # # test
+        # if t_rot is not None:
+        #     quat = quaternion.from_rotation_matrix(np.dot(_R.T, t_rot))
+        #     quat_w = min(1, abs(quat.w))
+        #     diff_angle = np.rad2deg(np.arccos(quat_w)) * 2
+        #     if diff_angle < min_ang:
+        #         ret_R2 = _R
+        #         ret_t2 = _t
+        #         min_ang = diff_angle
+        #         tmp_score = score
+        #         tmp_score_tri = score_tri
+        #         max_visib_tmp = score3_visib
+        #         max_invisib_tmp = score3_invisib
+
+    # if False and t_rot is not None:
+    #     quat = quaternion.from_rotation_matrix(np.dot(ret_R.T, t_rot))
+    #     quat_w = min(1, abs(quat.w))
+    #     diff_angle = np.rad2deg(np.arccos(quat_w)) * 2
+
+    #     quat = quaternion.from_rotation_matrix(np.dot(ret_R_tri.T, t_rot))
+    #     quat_w = min(1, abs(quat.w))
+    #     diff_angle_tri = np.rad2deg(np.arccos(quat_w)) * 2
+    #     print "----"
+    #     print min_ang, " : ", diff_angle, " : ", diff_angle_tri, " : ", diff_angle - diff_angle_tri
+    #     print 0.000,best_score, best_score_tri, max_visib, max_invisib
+    #     print 0.000,tmp_score, tmp_score_tri, max_visib_tmp, max_invisib_tmp
+    #     print np.linalg.norm(ret_t2 -t_cp), np.linalg.norm(ret_t - t_cp), np.linalg.norm(ret_t_tri - t_cp)
+
+    # # for debug print
+    # if False:
+    #     depth_model = pointcloud_to_depth((np.dot(ret_R, model) + ret_t[:, np.newaxis]).transpose(1,0),
+    #                                              K, depth.shape[::-1])
+    #     depth_model_minang = pointcloud_to_depth((np.dot(ret_R2, model) + ret_t2[:, np.newaxis]).transpose(1,0),
+    #                                              K, depth.shape[::-1])
+    #     depth_model_tri = pointcloud_to_depth((np.dot(ret_R_tri, model) + ret_t_tri[:, np.newaxis]).transpose(1,0),
+    #                                           K, depth.shape[::-1])
+    #     np.save("depth_model_minang.npy", depth_model_minang)
+    #     np.save("depth_model_tri.npy", depth_model_tri)
+    #     np.save("depth_model.npy", depth_model)
+    #     np.save("depth_img.npy", depth)
+    #     np.save("depth_obj_mask.npy", obj_mask)
+
+
+    # print time.time() - t
+    return ret_t_tri, ret_R_tri
 
 
 def calc_accuracy_impl(estimated_cp, estimated_ocp, estimated_R,
