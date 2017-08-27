@@ -8,16 +8,21 @@ from sys import platform as _platform
 import numpy
 
 include_dirs = [numpy.get_include()]
-if _platform =='linux':
+extra_compile_args=['-O3', '-std=c++11']
+extra_link_args=['-std=c++11']
+
+if _platform =='linux' or _platform=='linux2':
     include_dirs.append('/usr/include/eigen3')
 elif _platform=='darwin':
     include_dirs.append('/usr/local/include/eigen3')
+    extra_compile_args.append('-stdlib=libc++')
+    extra_link_args.append('-stdlib=libc++')
 
 ext_modules = [Extension('cp_net.utils.model_base_ransac_estimation',
                          ["cp_net/utils/model_base_ransac_estimation.pyx"],
                          include_dirs = include_dirs,
-                         extra_compile_args=['-O3', '-std=c++11', '-stdlib=libc++'],
-                         extra_link_args=['-std=c++11', '-stdlib=libc++'],
+                         extra_compile_args=extra_compile_args,
+                         extra_link_args=extra_link_args,
                          language = 'c++')]
                          # extra_compile_args=['-O3', '-std=c++11', '-stdlib=libc++'])]
 

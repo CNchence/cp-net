@@ -28,7 +28,7 @@ def calc_rot_c(np.ndarray[DOUBLE_t, ndim=2] Y,
 cdef inline pointcloud_to_depth_c(np.ndarray[DOUBLE_t, ndim=2] pc,
                                   np.ndarray[DOUBLE_t, ndim=2] K, int im_h, int im_w):
     cdef np.ndarray[DOUBLE_t, ndim=1] depth = np.zeros(im_h * im_w)
-    pointcloud_to_depth_impl(<double *> pc.data, <double *> K.data, <double *> depth.data,
+    misc.pointcloud_to_depth_impl(<double *> pc.data, <double *> K.data, <double *> depth.data,
                              im_h, im_w, len(pc[0]))
 
     return np.asanyarray(depth).reshape(im_h, im_w)
@@ -101,7 +101,7 @@ def model_base_ransac_estimation_cy(np.ndarray[DOUBLE_t, ndim=2] y_arr,
         _t = rand_y_mean[:, i_ransac] - np.dot(_R, rand_x_mean[:, i_ransac])
 
         dist = np.sum(np.abs(np.dot(_R, x_arr) + _t[:, np.newaxis] - y_arr), axis=0)
-        score = mean1d_up_limit(<double*> dist.data, <int> len(dist), max_thre)
+        score = misc.mean1d_up_limit(<double*> dist.data, <int> len(dist), max_thre)
 
         if score < best_score:
             best_score = score
@@ -112,13 +112,13 @@ def model_base_ransac_estimation_cy(np.ndarray[DOUBLE_t, ndim=2] y_arr,
                                             K, imsize_h, imsize_w)
         depth_diff = depth_model - depth
 
-        score_visib =  calc_visib_socre_from_map(<double *> depth_diff.data,
+        score_visib =  misc.calc_visib_socre_from_map(<double *> depth_diff.data,
                                                  <double *> depth_obj_mask.data,
                                                  imsize_h, imsize_w,
                                                  obj_visib_thre, percentile_thre, max_thre)
 
         invisib_mask = (depth_model != 0) * depth_nonobj_mask
-        score_invisib =  calc_invisib_socre_from_map(<double *> depth_diff.data,
+        score_invisib =  misc.calc_invisib_socre_from_map(<double *> depth_diff.data,
                                                      <double *> invisib_mask.data,
                                                      imsize_h, imsize_w,
                                                      0.015, percentile_thre, max_thre)
