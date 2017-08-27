@@ -25,7 +25,7 @@ def pointcloud_to_depth(pc, K, img_size):
     idx = np.argsort(zs)[::-1]
 
     # render depth
-    img_depth = np.zeros((img_size[0], img_size[1]))
+    img_depth = np.zeros(img_size[::-1])
     img_depth[ys[idx], xs[idx]] = zs[idx]
 
     return img_depth
