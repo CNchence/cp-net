@@ -57,6 +57,41 @@ double visibility_scoring(double* x, int len_x, int percentile_thre, double max_
 }
 
 
+double calc_visib_socre_from_map(double* depth_diff, double* mask, int im_h, int im_w,
+                                 int visib_thre, double percentile_thre, double max_dist_lim)
+{
+  int w, h, p, nonzero_cnt = 0;
+  int i, inlier_num;
+  double val, ret = 0.0;
+  double* score_arr;
+  score_arr = (double *)malloc(sizeof(double) * im_h * im_w);
+
+  // extract nonzero
+  for(h = 0; h < im_h; h++){
+    for(w = 0; w < im_w; w++){
+      p = h * im_w + w;
+      val = fabs(depth_diff[p] * mask[p]);
+      if (val != 0){
+        score_arr[nonzero_cnt++] = fabs(val);
+      }
+    }
+  }
+  if(nonzero_cnt < visib_thre){return 1e15;}
+  score_arr = (double *)realloc(score_arr, sizeof(double) * nonzero_cnt);
+
+  // percentile
+  inlier_num = nonzero_cnt * percentile_thre / 100.0;
+  qsort(score_arr, nonzero_cnt, sizeof(double), compare);
+  // score sum
+  for(i = 0 ; i < inlier_num ; i++){
+    ret += fmin(score_arr[i], max_dist_lim);
+  }
+  ret /= inlier_num;
+
+  return ret;
+}
+
+
 double calc_invisib_socre_from_map(double* depth_diff, double* mask, int im_h, int im_w,
                                    double fore_thre, double percentile_thre, double max_dist_lim)
 {
