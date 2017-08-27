@@ -15,22 +15,14 @@ from libc.math cimport round
 ctypedef np.float64_t DOUBLE_t
 ctypedef np.float32_t FLOAT_t
 
+cimport misc
 
 
-cdef extern double mean1d_up_limit(double* x, int len_x, double uplim)
-cdef extern double visibility_scoring(double* x, int len_x, int percentile_thre, double max_dist)
-
-
-cdef extern double calc_visib_socre_from_map(double* depth, double* mask, int im_h, int im_w,
-                                             int visib_thre, double percentile_thre,
-                                             double max_dist_lim)
-
-cdef extern double calc_invisib_socre_from_map(double* depth_diff, double* mask,
-                                               int im_h, int im_w, double fore_thre,
-                                               double percentile_thre, double max_dist_lim)
-
-cdef extern void pointcloud_to_depth_impl(double* pc, double* K, double* depth,
-                                          int im_h, int im_w, int len_pc)
+def calc_rot_c(np.ndarray[DOUBLE_t, ndim=2] Y,
+               np.ndarray[DOUBLE_t, ndim=2] X):
+    cdef np.ndarray[DOUBLE_t, ndim=2] R = np.zeros((3,3),dtype=np.float64)
+    misc.calc_rot_eigen_svd3x3(<double *> Y.data, <double *>  X.data, <double *> R.data)
+    return R.T
 
 
 cdef inline pointcloud_to_depth_c(np.ndarray[DOUBLE_t, ndim=2] pc,
@@ -100,12 +92,14 @@ def model_base_ransac_estimation_cy(np.ndarray[DOUBLE_t, ndim=2] y_arr,
     cdef np.ndarray[DOUBLE_t, ndim=2] rand_x_demean,  rand_y_demean
 
     cdef size_t i_ransac = 0
+
     for i_ransac in xrange(n_ransac):
         rand_x_demean = rand_x[:, i_ransac, :] - rand_x_mean[:, i_ransac, np.newaxis]
         rand_y_demean = rand_y[:, i_ransac, :] - rand_y_mean[:, i_ransac, np.newaxis]
-
-        _R = calc_rot_by_svd_cy(rand_y_demean, rand_x_demean)
+        # _R = calc_rot_by_svd_cy(rand_y_demean, rand_x_demean)
+        _R = calc_rot_c(rand_y_demean, rand_x_demean)
         _t = rand_y_mean[:, i_ransac] - np.dot(_R, rand_x_mean[:, i_ransac])
+
         dist = np.sum(np.abs(np.dot(_R, x_arr) + _t[:, np.newaxis] - y_arr), axis=0)
         score = mean1d_up_limit(<double*> dist.data, <int> len(dist), max_thre)
 

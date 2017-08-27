@@ -3,16 +3,22 @@ from distutils.extension import Extension
 from Cython.Distutils import build_ext
 from Cython.Build import cythonize
 
+from sys import platform as _platform
+
 import numpy
 
+include_dirs = [numpy.get_include()]
+if _platform =='linux':
+    include_dirs.append('/usr/include/eigen3')
+elif _platform=='darwin':
+    include_dirs.append('/usr/local/include/eigen3')
 
 ext_modules = [Extension('cp_net.utils.model_base_ransac_estimation',
-                         ["cp_net/utils/model_base_ransac_estimation.pyx",
-                          "cp_net/utils/misc.c"],
-                         include_dirs = [numpy.get_include()],
-                         extra_compile_args=['-O3'])]
-                         # language = 'c++',
-                         # extra_link_args=['-std=c++11', '-stdlib=libc++'],
+                         ["cp_net/utils/model_base_ransac_estimation.pyx"],
+                         include_dirs = include_dirs,
+                         extra_compile_args=['-O3', '-std=c++11', '-stdlib=libc++'],
+                         extra_link_args=['-std=c++11', '-stdlib=libc++'],
+                         language = 'c++')]
                          # extra_compile_args=['-O3', '-std=c++11', '-stdlib=libc++'])]
 
 setup(

@@ -2,9 +2,39 @@
 #include <stdlib.h>
 #include <math.h>
 
-// #include <vector>
-// #include <algorithm>
+#include <iostream>
+#include <vector>
+#include <algorithm>
 
+#include <Eigen/Core>
+#include <Eigen/SVD>
+#include <Eigen/LU>
+
+using namespace Eigen;
+
+void calc_rot_eigen_svd3x3(double* y_arr, double* x_arr, double* out_arr)
+{
+  MatrixXd x_mat(3,3);
+  MatrixXd y_mat(3,3);
+  int i;
+  for(i = 0; i < 9; i++){
+    x_mat(i) = x_arr[i];
+    y_mat(i) = y_arr[i];
+  }
+  // compute svd
+  JacobiSVD<MatrixXd> svd(x_mat * y_mat.transpose(), ComputeFullU | ComputeFullV);
+  MatrixXd v = svd.matrixV();
+  MatrixXd u = svd.matrixU();
+  // Compute R = V * U'
+  if ((u * v).determinant() < 0){
+    for (int x = 0; x < 3; ++x)
+      v (x, 2) *= -1;
+  }
+  MatrixXd out_mat = v * u.transpose();
+  for(i = 0; i < 9; i++){
+    out_arr[i] = out_mat(i);
+  }
+}
 
 double mean1d_up_limit(double* x, int len_x, double uplim)
 {
