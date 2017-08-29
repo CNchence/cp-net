@@ -15,3 +15,8 @@ cdef extern from "misc.cpp":
 
     cdef void pointcloud_to_depth_impl(double* pc, double* K, double* depth,
                                           int im_h, int im_w, int len_pc)
+
+    cdef void ransac_estimation_loop(double* x_arr, double* y_arr,
+                                     double* depth, double* model, double* K, double* obj_mask,
+                                     int len_arr, int len_model, int im_h, int im_w, int n_ransac,
+                                     double max_thre, int pthre, double* ret_t, double* ret_r)

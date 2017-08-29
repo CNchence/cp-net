@@ -5,12 +5,129 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <random>
 
 #include <Eigen/Core>
 #include <Eigen/SVD>
 #include <Eigen/LU>
 
 using namespace Eigen;
+
+void ransac_estimation_loop(double* x_arr, double* y_arr,
+                            double* depth, double* model, double* K, double* obj_mask,
+                            int len_arr, int len_model, int im_h, int im_w, int n_ransac,
+                            double max_thre, int pthre, double* ret_t, double* ret_r)
+{
+  std::random_device rnd;
+  std::mt19937 mt(rnd());
+  std::uniform_int_distribution<> rand_sample(0, len_arr);
+
+  int i, j, k, r_sample;
+  double score, best_score = 1e15;
+
+  MatrixXd x_arr_mat = Map<Matrix<double, Dynamic, Dynamic> >(x_arr, 3, len_arr);
+  MatrixXd y_arr_mat = Map<Matrix<double, Dynamic, Dynamic> >(y_arr, 3, len_arr);
+  MatrixXd depth_mat = Map<Matrix<double, Dynamic, Dynamic> >(depth, im_h, im_w);
+
+  MatrixXd x_demean(3, len_arr);
+  MatrixXd y_demean(3, len_arr);
+  // todo
+  // double* -> eigen
+
+  MatrixXd x_mat(3,3);
+  MatrixXd y_mat(3,3);
+  VectorXd x_mean(3);
+  VectorXd y_mean(3);
+
+  MatrixXd R(3,3);
+  MatrixXd best_R(3,3);
+  VectorXd t(3);
+  VectorXd best_t(3);
+
+  // for svd
+  MatrixXd v, u;
+  VectorXd dist(len_arr);
+
+  // for pointcloud -> depth
+  MatrixXd model_mat = Map<Matrix<double, Dynamic, Dynamic> >(model, 3, len_model);
+  MatrixXd model_depth = MatrixXd::Zero(im_h, im_w);
+  MatrixXd depth_diff;
+
+  VectorXd xs(len_model);
+  VectorXd ys(len_model);
+  VectorXd zs =  model_mat.row(2);;
+  int xx, yy;
+  double val;
+
+  VectorXd score_visib_arr;
+  VectorXd score_invisib_arr;
+
+  for(i = 0; i < n_ransac; i++){
+    // random sampling
+    for (j = 0; j < 3; j++){
+      r_sample = rand_sample(mt);
+      x_mat.col(j) = x_arr_mat.col(r_sample);
+      y_mat.col(j) = y_arr_mat.col(r_sample);
+    }
+    x_mean = x_mat.rowwise().mean();
+    y_mean = y_mat.rowwise().mean();
+    x_demean = x_arr_mat.colwise() - x_mean;
+    y_demean = y_arr_mat.colwise() - y_mean;
+
+    // compute SVD
+    JacobiSVD<MatrixXd> svd(x_demean * y_demean.transpose(), ComputeFullU | ComputeFullV);
+    v = svd.matrixV();
+    u = svd.matrixU();
+    // Compute R = V * U'
+    if ((u * v).determinant() < 0){
+      for (int x = 0; x < 3; ++x)
+        v (x, 2) *= -1;
+    }
+    R = v * u.transpose();
+    t = y_mean - R * x_mean;
+    dist = (((R * x_arr_mat).colwise() + t) - y_arr_mat).cwiseAbs().colwise().sum();
+    score = dist.sum();
+
+    // pointcloud -> depth image
+    // std::cout << zz.inverse().rows() << std::endl;
+    // std::cout << zz.inverse().cols() << std::endl;
+    xs = model_mat.row(0) * K[0]  * zs  + K[2] * VectorXd::Ones(len_model);
+    ys = model_mat.row(1) * K[4]  * zs  + K[5] * VectorXd::Ones(len_model);
+
+    for(j = 0; j < len_model; j++){
+      xx = xs(j);
+      yy = ys(j);
+      if(xx >= 0 && xx < im_w && yy >= 0 && yy < im_h){
+        val = model_depth(yy, xx);
+        if (val == 0){
+          model_depth(yy, xx) = zs(j);
+        }
+        else{
+          model_depth(yy, xx) = fmin(xs(j), val);
+        }
+      }
+    }
+
+    depth_diff = model_depth - depth_mat;
+
+    // todo
+    // awesome code !!
+    //
+
+    if(score < best_score){
+      best_t = t;
+      best_R = R;
+    }
+  }
+
+  // // Eigen -> double*
+  for(j = 0 ; j < 3 ; j++){
+    ret_t[j] = best_t(j);
+    for(k = 0 ; k < 3 ; k++){
+      ret_r[j * 3 + k] = best_R(j, k);
+    }
+  }
+}
 
 void calc_rot_eigen_svd3x3(double* y_arr, double* x_arr, double* out_arr)
 {
