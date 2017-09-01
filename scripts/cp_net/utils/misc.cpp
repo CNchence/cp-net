@@ -13,31 +13,45 @@
 
 using namespace Eigen;
 
-void ransac_estimation_loop(double* x_arr, double* y_arr,
-                            double* depth, double* model, double* K, double* obj_mask,
-                            int len_arr, int len_model, int im_h, int im_w, int n_ransac,
-                            double max_thre, int pthre, double* ret_t, double* ret_r)
+
+int compare(const void *p, const void *q)
 {
+    if( *(double*)p > *(double*)q ) return 1;
+    if( *(double*)p < *(double*)q ) return -1;
+    return 0;
+}
+
+struct functor_cmp {
+    bool operator()(const int& a, const int&b) const { return b > a; }
+};
+
+void ransac_estimation_loop(double* x_arr, double* y_arr, double* depth,
+                            double* model, double* K, double* obj_mask,
+                            int len_arr, int len_model, int im_h, int im_w, int n_ransac,
+                            double max_dist_lim, int pthre, double* ret_t, double* ret_r)
+{
+  Eigen::initParallel();
+
   std::random_device rnd;
   std::mt19937 mt(rnd());
   std::uniform_int_distribution<> rand_sample(0, len_arr);
 
-  int i, j, k, r_sample;
+  int j, k, r_sample;
   double score, best_score = 1e15;
 
-  MatrixXd x_arr_mat = Map<Matrix<double, Dynamic, Dynamic> >(x_arr, 3, len_arr);
-  MatrixXd y_arr_mat = Map<Matrix<double, Dynamic, Dynamic> >(y_arr, 3, len_arr);
-  MatrixXd depth_mat = Map<Matrix<double, Dynamic, Dynamic> >(depth, im_h, im_w);
+  MatrixXd x_arr_mat = Map<Matrix<double, Dynamic, Dynamic, RowMajor> >(x_arr, 3, len_arr);
+  MatrixXd y_arr_mat = Map<Matrix<double, Dynamic, Dynamic, RowMajor> >(y_arr, 3, len_arr);
+  MatrixXd depth_mat =
+    Map<Matrix<double, Dynamic, Dynamic, RowMajor> >(depth, im_h, im_w);
+  MatrixXd obj_mask_mat =
+    Map<Matrix<double, Dynamic, Dynamic, RowMajor> >(obj_mask, im_h, im_w);
 
-  MatrixXd x_demean(3, len_arr);
-  MatrixXd y_demean(3, len_arr);
-  // todo
-  // double* -> eigen
-
+  MatrixXd nonobj_mask_mat = MatrixXd::Ones(im_h, im_w) - obj_mask_mat;
   MatrixXd x_mat(3,3);
   MatrixXd y_mat(3,3);
   VectorXd x_mean(3);
   VectorXd y_mean(3);
+  MatrixXd x_demean, y_demean;
 
   MatrixXd R(3,3);
   MatrixXd best_R(3,3);
@@ -46,23 +60,31 @@ void ransac_estimation_loop(double* x_arr, double* y_arr,
 
   // for svd
   MatrixXd v, u;
-  VectorXd dist(len_arr);
 
   // for pointcloud -> depth
-  MatrixXd model_mat = Map<Matrix<double, Dynamic, Dynamic> >(model, 3, len_model);
-  MatrixXd model_depth = MatrixXd::Zero(im_h, im_w);
+  MatrixXd model_mat =
+    Map<Matrix<double, Dynamic, Dynamic, RowMajor> >(model, 3, len_model);
+  MatrixXd transform_model;
+  MatrixXd model_depth;
   MatrixXd depth_diff;
 
   VectorXd xs(len_model);
   VectorXd ys(len_model);
-  VectorXd zs =  model_mat.row(2);;
-  int xx, yy;
-  double val;
+  VectorXd zs(len_model);
+  VectorXd zs_inv(len_model);
+  ArrayXi mask(len_model);
 
-  VectorXd score_visib_arr;
-  VectorXd score_invisib_arr;
+  int visib_thre = (obj_mask_mat.array() > 0).count() * 0.25;
+  int visib_nonzero_cnt, invisib_nonzero_cnt;
+  int inlier_num;
+  double val, visib_score, invisib_score;
 
-  for(i = 0; i < n_ransac; i++){
+  MatrixXd visib_score_mat(im_h, im_w);
+  MatrixXd invisib_score_mat(im_h, im_w);
+  std::vector<double> visib_score_vec(im_h * im_w);
+  std::vector<double> invisib_score_vec(im_h * im_w);
+
+  for(size_t i = 0; i < n_ransac; i++){
     // random sampling
     for (j = 0; j < 3; j++){
       r_sample = rand_sample(mt);
@@ -71,8 +93,8 @@ void ransac_estimation_loop(double* x_arr, double* y_arr,
     }
     x_mean = x_mat.rowwise().mean();
     y_mean = y_mat.rowwise().mean();
-    x_demean = x_arr_mat.colwise() - x_mean;
-    y_demean = y_arr_mat.colwise() - y_mean;
+    x_demean = x_mat.colwise() - x_mean;
+    y_demean = y_mat.colwise() - y_mean;
 
     // compute SVD
     JacobiSVD<MatrixXd> svd(x_demean * y_demean.transpose(), ComputeFullU | ComputeFullV);
@@ -80,47 +102,103 @@ void ransac_estimation_loop(double* x_arr, double* y_arr,
     u = svd.matrixU();
     // Compute R = V * U'
     if ((u * v).determinant() < 0){
-      for (int x = 0; x < 3; ++x)
+      for (size_t x = 0; x < 3; ++x)
         v (x, 2) *= -1;
     }
     R = v * u.transpose();
     t = y_mean - R * x_mean;
-    dist = (((R * x_arr_mat).colwise() + t) - y_arr_mat).cwiseAbs().colwise().sum();
-    score = dist.sum();
+
+    score = (((R * x_arr_mat).colwise() + t) -
+             y_arr_mat).cwiseAbs().rowwise().mean().sum();
 
     // pointcloud -> depth image
-    // std::cout << zz.inverse().rows() << std::endl;
-    // std::cout << zz.inverse().cols() << std::endl;
-    xs = model_mat.row(0) * K[0]  * zs  + K[2] * VectorXd::Ones(len_model);
-    ys = model_mat.row(1) * K[4]  * zs  + K[5] * VectorXd::Ones(len_model);
+    transform_model = (R * model_mat).colwise() + t;
+    zs = transform_model.row(2);
+    zs_inv = zs.cwiseInverse();
+    xs = transform_model.row(0).transpose().array() * zs_inv.array() * K[0] + K[2];
+    ys = transform_model.row(1).transpose().array() * zs_inv.array() * K[4] + K[5];
+    mask = (xs.array() >= 0 && xs.array() < im_w && ys.array() >= 0 &&
+            ys.array() < im_h).select(ArrayXi::Ones(len_model), ArrayXi::Zero(len_model));
 
+    model_depth = MatrixXd::Zero(im_h, im_w);
     for(j = 0; j < len_model; j++){
-      xx = xs(j);
-      yy = ys(j);
-      if(xx >= 0 && xx < im_w && yy >= 0 && yy < im_h){
-        val = model_depth(yy, xx);
+      if (mask(j) == 1){
+        val = model_depth(ys(j), xs(j));
         if (val == 0){
-          model_depth(yy, xx) = zs(j);
+          model_depth(ys(j), xs(j)) = zs(j);
         }
         else{
-          model_depth(yy, xx) = fmin(xs(j), val);
+          model_depth(ys(j), xs(j)) = fmin(zs(j), val);
         }
       }
     }
 
     depth_diff = model_depth - depth_mat;
+    visib_score_mat = depth_diff.array() * obj_mask_mat.array();
+    invisib_score_mat = depth_diff.array() * nonobj_mask_mat.array();
 
-    // todo
-    // awesome code !!
-    //
+    // intialize for scoring
+    visib_nonzero_cnt = 0;
+    invisib_nonzero_cnt = 0;
+    visib_score = 0;
+    invisib_score = 0;
+
+    for(j = 0; j < im_h; j++){
+      for(k = 0; k < im_w; k++){
+        if(depth_mat(j, k) != 0 && model_depth(j, k) != 0){
+          val = visib_score_mat(j, k);
+          if(val != 0){
+            visib_score_vec[visib_nonzero_cnt++] = fabs(val);
+          }
+          val = invisib_score_mat(j, k);
+          if(val != 0){
+            if (val > 0.015){
+              val = 0;
+            }
+            invisib_score_vec[invisib_nonzero_cnt++] = fabs(val);
+          }
+        }
+      }
+    }
+    // visib score
+    if (visib_nonzero_cnt < visib_thre){
+      visib_score = 1e10;
+    }
+    else{
+      // percentile
+      inlier_num = visib_nonzero_cnt * pthre / 100.0;
+      std::sort(visib_score_vec.begin(), visib_score_vec.begin() + visib_nonzero_cnt + 1,
+                functor_cmp());
+      // score sum
+      for(j = 0 ; j < inlier_num ; j++){
+        visib_score += fmin(visib_score_vec[i], max_dist_lim);
+      }
+      visib_score /= inlier_num;
+    }
+    // invisib score
+    if(invisib_nonzero_cnt > 0){
+      // percentile
+      inlier_num = invisib_nonzero_cnt * pthre / 100.0;
+      std::sort(invisib_score_vec.begin(), invisib_score_vec.begin() + invisib_nonzero_cnt + 1,
+                functor_cmp());
+      // score sum
+      for(j = 0 ; j < inlier_num ; j++){
+        invisib_score += fmin(invisib_score_vec[j], max_dist_lim);
+      }
+      invisib_score /= inlier_num;
+    }
+
+    score = visib_score + invisib_score;
 
     if(score < best_score){
+      best_score = score;
       best_t = t;
       best_R = R;
     }
   }
+  // std::cout << score << std::endl;
 
-  // // Eigen -> double*
+  // Eigen -> double*
   for(j = 0 ; j < 3 ; j++){
     ret_t[j] = best_t(j);
     for(k = 0 ; k < 3 ; k++){
@@ -133,7 +211,7 @@ void calc_rot_eigen_svd3x3(double* y_arr, double* x_arr, double* out_arr)
 {
   MatrixXd x_mat(3,3);
   MatrixXd y_mat(3,3);
-  int i;
+  int i, j;
   for(i = 0; i < 9; i++){
     x_mat(i) = x_arr[i];
     y_mat(i) = y_arr[i];
@@ -148,8 +226,10 @@ void calc_rot_eigen_svd3x3(double* y_arr, double* x_arr, double* out_arr)
       v (x, 2) *= -1;
   }
   MatrixXd out_mat = v * u.transpose();
-  for(i = 0; i < 9; i++){
-    out_arr[i] = out_mat(i);
+  for(i = 0; i < 3; i++){
+    for(j = 0; j <3; j++){
+      out_arr[i * 3 + j] = out_mat(i, j);
+    }
   }
 }
 
@@ -178,13 +258,6 @@ double right_tmean1d_up_limit(double* x, int len_x, double thre, double uplim)
   }
   ret /= cnt;
   return ret;
-}
-
-int compare(const void *p, const void *q)
-{
-    if( *(double*)p > *(double*)q ) return 1;
-    if( *(double*)p < *(double*)q ) return -1;
-    return 0;
 }
 
 
@@ -263,7 +336,7 @@ double calc_invisib_socre_from_map(double* depth_diff, double* mask, int im_h, i
   }
   if(nonzero_cnt == 0){return 0;}
   score_arr = (double *)realloc(score_arr, sizeof(double) * nonzero_cnt);
-
+  // std::cout << nonzero_cnt << std::endl;
   // percentile
   inlier_num = nonzero_cnt * percentile_thre / 100.0;
   qsort(score_arr, nonzero_cnt, sizeof(double), compare);
@@ -295,4 +368,34 @@ void pointcloud_to_depth_impl(double* pc, double* K, double* depth,
       }
     }
   }
+}
+
+MatrixXd pointcloud_to_depth_eigen(MatrixXd model_mat, MatrixXd K,
+                                   int im_h, int im_w, int len_model)
+{
+  int j, xx, yy;
+  MatrixXd xs, ys, zs;
+  MatrixXd model_depth = MatrixXd::Zero(im_h, im_w);
+  double val;
+  // pointcloud -> depth image
+  zs = model_mat.row(2);
+  // std::cout << zz.inverse().rows() << std::endl;
+  // std::cout << zz.inverse().cols() << std::endl;
+  xs = model_mat.row(0) * K(0, 0) * zs + K(0, 2) * VectorXd::Ones(len_model);
+  ys = model_mat.row(1) * K(1, 1) * zs + K(1, 2) * VectorXd::Ones(len_model);
+
+  for(j = 0; j < len_model; j++){
+    xx = xs(j);
+    yy = ys(j);
+    if(xx >= 0 && xx < im_w && yy >= 0 && yy < im_h){
+      val = model_depth(yy, xx);
+      if (val == 0){
+        model_depth(yy, xx) = zs(j);
+      }
+      else{
+        model_depth(yy, xx) = fmin(xs(j), val);
+      }
+    }
+  }
+  return model_depth;
 }
