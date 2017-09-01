@@ -8,7 +8,6 @@
 import numpy as np
 cimport numpy as np
 cimport cython
-from cython.parallel import parallel, prange
 
 from libc.math cimport round
 
@@ -20,9 +19,9 @@ cimport misc
 
 def calc_rot_c(np.ndarray[DOUBLE_t, ndim=2] Y,
                np.ndarray[DOUBLE_t, ndim=2] X):
-    cdef np.ndarray[DOUBLE_t, ndim=2] R = np.zeros((3,3),dtype=np.float64)
+    cdef np.ndarray[DOUBLE_t, ndim=2] R = np.empty((3,3),dtype=np.float64)
     misc.calc_rot_eigen_svd3x3(<double *> Y.data, <double *>  X.data, <double *> R.data)
-    return R.T
+    return R
 
 
 cdef inline pointcloud_to_depth_c(np.ndarray[DOUBLE_t, ndim=2] pc,
@@ -48,6 +47,38 @@ cdef calc_rot_by_svd_cy(np.ndarray[DOUBLE_t, ndim=2] Y,
     return R
 
 
+def model_base_ransac_estimation_cpp(np.ndarray[DOUBLE_t, ndim=2] y_arr,
+                                     np.ndarray[DOUBLE_t, ndim=2] x_arr,
+                                     np.ndarray[DOUBLE_t, ndim=2] model,
+                                     np.ndarray[DOUBLE_t, ndim=2] depth,
+                                     np.ndarray[DOUBLE_t, ndim=2] K,
+                                     np.ndarray[DOUBLE_t, ndim=2] obj_mask,
+                                     im_size,
+                                     int n_ransac=100, double max_thre=0.1,
+                                     int percentile_thre = 90):
+    ## intialize
+    cdef np.ndarray[DOUBLE_t, ndim=1] ret_t = np.zeros(3)
+    cdef np.ndarray[DOUBLE_t, ndim=2] ret_R = np.diag((1.0, 1.0, 1.0))
+    cdef int imsize_h = im_size[0]
+    cdef int imsize_w = im_size[1]
+    cdef np.ndarray[DOUBLE_t, ndim=1] x_arr_tmp = np.asanyarray(x_arr.ravel())
+    cdef np.ndarray[DOUBLE_t, ndim=1] y_arr_tmp = np.asanyarray(y_arr.ravel())
+    cdef np.ndarray[DOUBLE_t, ndim=1] model_tmp = np.asanyarray(model.ravel())
+    cdef np.ndarray[DOUBLE_t, ndim=1] depth_tmp = np.asanyarray(depth.ravel())
+    cdef np.ndarray[DOUBLE_t, ndim=1] K_tmp = np.asanyarray(K.ravel())
+    cdef np.ndarray[DOUBLE_t, ndim=1] obj_mask_tmp = np.asanyarray(obj_mask.ravel())
+
+    # print depth_tmp[0, 0], depth_tmp[0, 1], depth_tmp[1, 0]
+    misc.ransac_estimation_loop(<double*> x_arr_tmp.data, <double*> y_arr_tmp.data,
+                                <double*> depth_tmp.data, <double*> model_tmp.data,
+                                <double*> K_tmp.data, <double*> obj_mask_tmp.data,
+                                len(x_arr[0]), len(model[0]), imsize_h, imsize_w, n_ransac,
+                                max_thre, 90, <double*>ret_t.data, <double*>ret_R.data)
+    return ret_t, ret_R
+
+
+
+## cython and c++ loop impl
 def model_base_ransac_estimation_cy(np.ndarray[DOUBLE_t, ndim=2] y_arr,
                                     np.ndarray[DOUBLE_t, ndim=2] x_arr,
                                     np.ndarray[DOUBLE_t, ndim=2] model,
@@ -129,5 +160,6 @@ def model_base_ransac_estimation_cy(np.ndarray[DOUBLE_t, ndim=2] y_arr,
             best_score_tri = score_tri
             ret_t_tri = _t
             ret_R_tri = _R
+    # print score_tri
 
     return ret_t_tri, ret_R_tri
