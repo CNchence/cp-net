@@ -40,21 +40,24 @@ fig = plt.figure(figsize=(3, 2))
 
 ## pose estimation not using Cython
 t1 = time.time()
-ret_t, ret_R = model_base_consensus_accuracy.model_base_ransac_estimatation \
-               (pc, y, pc, model, depth, k, t_cp, obj_mask)
+# ret_t, ret_R = model_base_consensus_accuracy.model_base_ransac_estimatation \
+#                (pc, y, pc, model, depth, k, t_cp, obj_mask)
+ret_t, ret_R = model_base_ransac_estimation.model_base_ransac_estimation_cy(pc, y, model,
+                                                                            depth, k, obj_mask,
+                                                                            im_size)
 t1 = time.time() - t1
 
 ## pose estimation using Cython
 t2 = time.time()
-ret_t2, ret_R2 = model_base_ransac_estimation.model_base_ransac_estimation_cy(pc, y, model,
-                                                                              depth, k, obj_mask,
-                                                                              im_size)
+ret_t2, ret_R2 = model_base_ransac_estimation.model_base_ransac_estimation_cpp(pc, y, model,
+                                                                               depth, k, obj_mask,
+                                                                               im_size)
 t2 = time.time() - t2
 
 
 import pstats, cProfile
 
-cProfile.runctx("model_base_ransac_estimation.model_base_ransac_estimation_cy(pc, y, model, depth, k, obj_mask, im_size, n_ransac=1000)", globals(), locals(), "Profile.prof")
+cProfile.runctx("model_base_ransac_estimation.model_base_ransac_estimation_cpp(pc, y, model, depth, k, obj_mask, im_size, n_ransac=1000)", globals(), locals(), "Profile.prof")
 
 s = pstats.Stats("Profile.prof")
 s.strip_dirs().sort_stats("time").print_stats()
@@ -69,10 +72,14 @@ p_ren = pointcloud_to_depth((np.dot(ret_R, model) + ret_t[:, np.newaxis]).transp
 c_ren = pointcloud_to_depth((np.dot(ret_R2, model) + ret_t2[:, np.newaxis]).transpose(1,0),
                             k, im_size[::-1])
 
-
+print "obj_mask count : ", len(obj_mask[obj_mask != 0])
+print "depth nonzero count : ", len(depth[depth != 0])
 print "ransac without cython : ", t1
 print "ransac with cython : ", t2
-
+print t_rot
+print ret_R2
+print t_cp
+print ret_t2
 ax = fig.add_subplot(2, 3, 1)
 ax.imshow(rgb[:,:,::-1] / 255.0)
 ax = fig.add_subplot(2, 3, 2)
