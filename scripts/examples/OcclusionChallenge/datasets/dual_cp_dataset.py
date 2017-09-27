@@ -11,8 +11,7 @@ import quaternion
 import cv2
 import six
 
-from obj_pose_eval import inout
-
+from cp_net.utils import inout
 import cp_net.utils.preprocess_utils as preprocess_utils
 
 

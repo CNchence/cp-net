@@ -7,13 +7,13 @@ import cv2
 import numpy as np
 
 from cp_net.utils import renderer
-from obj_pose_eval import inout, transform
+from cp_net.utils import inout, transform
 
 import argparse
 
 def main():
     parser = argparse.ArgumentParser(description='Data Augmentation Samples')
-    parser.add_argument('--path', '-p', default="../../train_data/OcclusionChallengeICCV2015/models_ply",
+    parser.add_argument('--path', '-p', default="../../../train_data/OcclusionChallengeICCV2015/models_ply",
                         help='Path to ply data')
     parser.add_argument('--out', '-o', default="output.png",
                         help='output image name')

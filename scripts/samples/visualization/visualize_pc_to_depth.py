@@ -9,14 +9,14 @@ import numpy as np
 import pypcd
 
 from cp_net.utils.pointcloud_to_depth import *
-from obj_pose_eval import inout, transform
+from cp_net.utils import inout, transform
 
 import argparse
 
 
 def main():
     parser = argparse.ArgumentParser(description='Data Augmentation Samples')
-    parser.add_argument('--path', '-p', default="../../train_data/OcclusionChallengeICCV2015/models_pcd",
+    parser.add_argument('--path', '-p', default="../../../train_data/OcclusionChallengeICCV2015/models_pcd",
                         help='Path to pcd data')
     parser.add_argument('--out', '-o', default="output.png",
                         help='output image name')
