@@ -26,7 +26,7 @@ class DualCPNetClassifier(link.Chain):
         self.eval_rate = None
         self.ignore_label = -1
         self.lambda1 = 1e1
-        self.lambda2 = 1e2
+        self.lambda2 = 1e1
         self.distance_sanity = distance_sanity
         self.method = method
         self.ver2 = ver2
@@ -41,8 +41,8 @@ class DualCPNetClassifier(link.Chain):
 
     def __call__(self, *args):
         assert len(args) >= 2
-        x = args[:-8]
-        t_cls, t_cp, t_ocp, cp, rot, t_pc, obj_mask, nonnan_mask = args[-8:]
+        x = args[:-10]
+        t_cls, depth, t_cp, t_ocp, cp, rot, t_pc, obj_mask, nonnan_mask, K = args[-10:]
         self.y = None
         self.loss = None
         self.cls_loss = None
@@ -72,11 +72,12 @@ class DualCPNetClassifier(link.Chain):
         if self.compute_accuracy:
             self.class_acc = F.accuracy(y_cls, t_cls, ignore_label=self.ignore_label)
             if self.ver2:
-                self.cp_acc, self.ocp_acc, self.rot_acc, self.eval_rate= self.accfun(y_cls, y_cp, y_ocp, t_ocp, cp, rot, t_pc)
+                self.cp_acc, self.ocp_acc, self.rot_acc, self.eval_rate= self.accfun(y_cls, y_cp, y_ocp, t_ocp, cp, rot, t_pc, depth, K,
+                                                                                     args[0])
             else:
                 self.cp_acc, self.ocp_acc, self.rot_acc, self.eval_rate= \
                     dual_cp_accuracy.dual_cp_accuracy(y_cls, y_cp, y_ocp, t_ocp, cp, rot, t_pc,
-                                                      eps=0.8,
+                                                      eps=0.4,
                                                       distance_sanity=self.distance_sanity,
                                                       method=self.method,
                                                       ver2=self.ver2)

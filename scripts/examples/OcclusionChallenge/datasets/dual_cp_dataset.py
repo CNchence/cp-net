@@ -20,7 +20,9 @@ class DualCPNetDataset(dataset.DatasetMixin):
 
     def __init__(self, path, data_indices, img_height = 480, img_width = 640,
                  n_class=9,
-                 random=False, random_crop=False, random_flip=False, random_resize=False,
+                 random_crop=False,
+                 dummy_crop=False,
+                 random_resize=False,
                  train_output_scale=1.0,
                  gaussian_noise=False,
                  gamma_augmentation=False,
@@ -44,9 +46,16 @@ class DualCPNetDataset(dataset.DatasetMixin):
             self.contrast_server = preprocess_utils.ContrastAugmentation()
 
         self.random_crop = random_crop
-        self.random_flip = random_flip
+        self.crop_sizeh = 24
+        self.crop_sizew = 32
+        self.dummy_crop = dummy_crop
         self.random_resize = random_resize
         self.objs = ['Ape', 'Can', 'Cat', 'Driller', 'Duck', 'Eggbox', 'Glue', 'Holepuncher']
+
+        self.original_im_size = (480, 640)
+        self.K = np.array([[572.41140, 0, 325.26110],
+                           [0, 573.57043, 242.04899],
+                           [0, 0, 0]])
 
         self.ver2 = ver2
 
@@ -80,8 +89,9 @@ class DualCPNetDataset(dataset.DatasetMixin):
 
     def load_orig_data(self, idx):
         rgbd_path = os.path.join(self.base_path, "RGB-D")
-        rgb = cv2.imread(os.path.join(rgbd_path, "rgb_noseg", 'color_{0:0>5}.png'.format(idx))) ##[:,:,::-1]
-
+        rgb = cv2.imread(os.path.join(rgbd_path, "rgb_noseg", 'color_{0:0>5}.png'.format(idx)))
+        depth = cv2.imread(os.path.join(rgbd_path, "depth_noseg", 'depth_{0:0>5}.png'.format(idx)),
+                           cv2.IMREAD_UNCHANGED) / 1000.0
         # data augmentation
         if self.gaussian_noise and np.random.randint(0,2):
             rgb = preprocess_utils.add_noise(rgb)
@@ -101,15 +111,19 @@ class DualCPNetDataset(dataset.DatasetMixin):
                 rgb = self.contrast_server.high_contrast(rgb)
             else:
                 rgb = self.contrast_server.low_contrast(rgb)
+        imagenet_mean = np.array(
+            [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
+        rgb = rgb - imagenet_mean
 
         pc = np.load(os.path.join(rgbd_path, "xyz", 'xyz_{0:0>5}.npy'.format(idx)))
         masks = self._get_mask(idx, rgbd_path)
         pos, rot = self._get_pose(idx)
-        return rgb, masks, pc, pos, rot
+        return rgb, depth, masks, pc, pos, rot
 
     def get_example(self, i):
         ii = self.data_indices[i]
-        img_rgb, masks, pc, pos, rot = self.load_orig_data(ii)
+        img_rgb, img_depth, masks, pc, pos, rot = self.load_orig_data(ii)
+        K = self.K.copy()
 
         resize_rate = 1.0
         if self.ver2:
@@ -119,44 +133,40 @@ class DualCPNetDataset(dataset.DatasetMixin):
 
         # cropping
         if self.random_crop:
-            rand_h = random.randint(0, 24)
-            rand_w = random.randint(0, 32)
-            crop_h = 480 - 24
-            crop_w = 640 - 32
+            rand_h = random.randint(0, self.crop_sizeh)
+            rand_w = random.randint(0, self.crop_sizew)
+            crop_h = 480 - self.crop_sizeh
+            crop_w = 640 - self.crop_sizew
             img_rgb = img_rgb[rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
+            img_depth = img_depth[rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
+            pc = pc[rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
             for i in six.moves.range(len(masks)):
                 if masks[i] is not None:
                     masks[i] = masks[i][rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
-                    pc = pc[rand_h:(crop_h + rand_h), rand_w:(crop_w + rand_w)]
+            K[0, 2] -= rand_w
+            K[1, 2] -= rand_h
 
-        if self.random_flip:
-            rand_flip = random.randint(0,1)
-        else:
-            rand_flip = False
 
-        img_rgb = img_rgb / 255.0  # Scale to [0, 1];
         img_rgb = cv2.resize(img_rgb, (self.img_width, self.img_height))
+        img_rgb = img_rgb / 255.0  # Scale to [0, 1];
         img_rgb = img_rgb.transpose(2,0,1).astype(np.float32)
 
-        # imagenet_mean = np.array(
-        #     [123.68, 116.779, 103.939], dtype=np.float32)[:, np.newaxis, np.newaxis]
-        # img_rgb -= imagenet_mean
-
         label = np.zeros((out_height, out_width))
-        masks_tmp = np.zeros((self.n_class - 1, out_height, out_width))
+        masks_tmp = np.empty((self.n_class - 1, out_height, out_width))
         obj_mask = np.zeros((out_height, out_width))
 
+        ## depth
+        K = 1.0 * out_height / img_depth.shape[0] * K
+        img_depth = cv2.resize(img_depth, (out_width, out_height))
+
+        ## point cloud
         pc = cv2.resize(pc, (out_width, out_height)).transpose(2,0,1)
 
         ## nonnan mask
         nonnan_mask = np.invert(np.isnan(pc[0])).astype(np.float32)
 
-        img_cp = np.zeros_like(pc)
-        img_ocp = np.zeros_like(pc)
-
         if self.ver2:
             # ver2
-            img_cp = np.zeros((self.n_class - 1, 3, out_height, out_width))
             img_cp = pos[:, :, np.newaxis, np.newaxis] - pc[np.newaxis, :, :, :]
             img_ocp = np.empty_like(img_cp)
             for idx in six.moves.range(self.n_class - 1):
@@ -176,6 +186,8 @@ class DualCPNetDataset(dataset.DatasetMixin):
 
         else:
             # ver1
+            img_cp = np.empty_like(pc)
+            img_ocp = np.empty_like(pc)
             for idx in six.moves.range(self.n_class - 1):
                 mask = masks[idx]
                 if mask is None:
@@ -202,15 +214,8 @@ class DualCPNetDataset(dataset.DatasetMixin):
         img_cp[img_cp != img_cp] = 0
         img_ocp[img_ocp != img_ocp] = 0
 
-        # print "---"
-        # pc[pc!=pc]=0
-        # print np.max(np.abs(pc),axis=(1,2))
-        # for idx in six.moves.range(self.n_class - 1):
-        #     print pos[idx].ravel()
-        #     print np.max(np.abs(img_cp[idx]), axis=(1,2))
-        #     print np.max(np.abs(img_ocp[idx]), axis=(1,2))
-        #     print "-"
         ## ignore nan
         label[np.isnan(pc[0]) * (label == 0)] = -1
 
-        return img_rgb, label.astype(np.int32), img_cp, img_ocp, pos, rot, pc, obj_mask.astype(np.int32), nonnan_mask
+
+        return img_rgb, label.astype(np.int32), img_depth, img_cp, img_ocp, pos, rot, pc, obj_mask.astype(np.int32), nonnan_mask, K

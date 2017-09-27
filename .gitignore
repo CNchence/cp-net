@@ -3,8 +3,13 @@
 .DS_Store
 .\~
 *.egg-info
+*.so
 
 # dataset dir
 download_data/
 train_data/
 trained_data/
+
+# build dir
+
+build/
