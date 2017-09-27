@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
-
 #cython: boundscheck=False
 #cython: wraparound=False
 #cython: nonecheck=False
-#cython: profile=True
+#cython: profile=False
 
 import numpy as np
 cimport numpy as np

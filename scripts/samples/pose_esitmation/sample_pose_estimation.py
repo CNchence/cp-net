@@ -40,11 +40,12 @@ fig = plt.figure(figsize=(3, 2))
 
 ## pose estimation not using Cython
 t1 = time.time()
-# ret_t, ret_R = model_base_consensus_accuracy.model_base_ransac_estimatation \
-#                (pc, y, pc, model, depth, k, t_cp, obj_mask)
-ret_t, ret_R = model_base_ransac_estimation.model_base_ransac_estimation_cy(pc, y, model,
-                                                                            depth, k, obj_mask,
-                                                                            im_size)
+ret_t, ret_R = model_base_consensus_accuracy.model_base_ransac_estimatation \
+               (pc, y, pc, model, depth, k, t_cp, obj_mask)
+
+# ret_t, ret_R = model_base_ransac_estimation.model_base_ransac_estimation_cy(pc, y, model,
+#                                                                             depth, k, obj_mask,
+#                                                                             im_size)
 t1 = time.time() - t1
 
 ## pose estimation using Cython
@@ -55,12 +56,10 @@ ret_t2, ret_R2 = model_base_ransac_estimation.model_base_ransac_estimation_cpp(p
 t2 = time.time() - t2
 
 
-import pstats, cProfile
-
-cProfile.runctx("model_base_ransac_estimation.model_base_ransac_estimation_cpp(pc, y, model, depth, k, obj_mask, im_size, n_ransac=1000)", globals(), locals(), "Profile.prof")
-
-s = pstats.Stats("Profile.prof")
-s.strip_dirs().sort_stats("time").print_stats()
+# import pstats, cProfile
+# cProfile.runctx("model_base_ransac_estimation.model_base_ransac_estimation_cpp(pc, y, model, depth, k, obj_mask, im_size, n_ransac=1000)", globals(), locals(), "Profile.prof")
+# s = pstats.Stats("Profile.prof")
+# s.strip_dirs().sort_stats("time").print_stats()
 
 ## clac true pose
 t_ren = pointcloud_to_depth((np.dot(t_rot, model) + t_cp[:, np.newaxis]).transpose(1,0),

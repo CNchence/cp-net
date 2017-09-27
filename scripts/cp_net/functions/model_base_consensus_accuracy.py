@@ -249,8 +249,6 @@ def model_base_ransac_estimatation(y_arr, x_arr, pc, model, depth, K, t_cp,
     obj_visib_thre = np.sum(obj_mask) * 0.5
 
     for i_ransac in six.moves.range(n_ransac):
-        print "---"
-        tt = time.time()
         random_x_demean = random_x[:, i_ransac, :] - random_x_mean[:, i_ransac, np.newaxis]
         random_y_demean = random_y[:, i_ransac, :] - random_y_mean[:, i_ransac, np.newaxis]
 
@@ -264,7 +262,6 @@ def model_base_ransac_estimatation(y_arr, x_arr, pc, model, depth, K, t_cp,
             best_score = score
             ret_t = _t
             ret_R = _R
-        print time.time() - tt
         # test
         # grid_size = 5
         # grid = np.arange(grid_size) * 0.0025 - 0.0025 * int(grid_size /2)
@@ -293,14 +290,13 @@ def model_base_ransac_estimatation(y_arr, x_arr, pc, model, depth, K, t_cp,
 
         depth_model = pointcloud_to_depth((np.dot(_R, model) + _t[:, np.newaxis]).transpose(1,0),
                                           K, depth.shape[::-1])
-        print time.time() -tt
         mask = (depth_model != 0) * (depth != 0)
         if np.sum(mask) == 0:
             continue
         depth_diff = depth_model - depth
         score3_visib = np.abs(depth_diff) * (depth != 0) * obj_mask
         if np.sum(mask * obj_mask) > obj_visib_thre:
-            score3_visib = score3_visib[np.nonzero(score3_visib)]
+            score3_visib = score3_visib[score3_visib != 0]
             score3_visib[score3_visib > 0.1] = 0.1
             dist_thre = np.percentile(score3_visib, 90)
             score3_visib = np.mean(score3_visib[score3_visib <= dist_thre])
@@ -309,7 +305,7 @@ def model_base_ransac_estimatation(y_arr, x_arr, pc, model, depth, K, t_cp,
         invisib_mask = mask * (1 - obj_mask)
         score3_invisib = depth_diff * invisib_mask
         if np.sum(invisib_mask) > 0:
-            score3_invisib = score3_invisib[np.nonzero(score3_invisib)]
+            score3_invisib = score3_invisib[score3_invisib != 0]
             score3_invisib[score3_invisib > 0.015] = 0
             score3_invisib = np.abs(score3_invisib)
             score3_invisib[score3_invisib > 0.1] = 0.1
@@ -321,14 +317,14 @@ def model_base_ransac_estimatation(y_arr, x_arr, pc, model, depth, K, t_cp,
         # print score3_visib
         # print score3_invisib
         score_tri = score + score3_visib + score3_invisib
-        # print time.time() - tt
+
         if score_tri < best_score_tri:
             best_score_tri = score_tri
             max_visib = score3_visib
             max_invisib = score3_invisib
             ret_t_tri = _t
             ret_R_tri = _R
-        print time.time() -tt
+
         # # test
         # if t_rot is not None:
         #     quat = quaternion.from_rotation_matrix(np.dot(_R.T, t_rot))
