@@ -79,17 +79,29 @@ print t_rot
 print ret_R2
 print t_cp
 print ret_t2
+
 ax = fig.add_subplot(2, 3, 1)
+plt.title("RGB", fontsize=12)
 ax.imshow(rgb[:,:,::-1] / 255.0)
+
 ax = fig.add_subplot(2, 3, 2)
+plt.title("Depth", fontsize=12)
 ax.imshow(depth)
+
 ax = fig.add_subplot(2, 3, 3)
+plt.title("Mask", fontsize=12)
 ax.imshow(obj_mask)
+
 ax = fig.add_subplot(2, 3, 4)
+plt.title("Grand Truth", fontsize=12)
 ax.imshow(rgb[:,:,::-1] /255.0 * 0.5 + t_ren[:,:,np.newaxis] * 0.4)
+
 ax = fig.add_subplot(2, 3, 5)
+plt.title("Python version", fontsize=12)
 ax.imshow(rgb[:,:,::-1] /255.0 * 0.5 + p_ren[:,:,np.newaxis] * 0.4)
+
 ax = fig.add_subplot(2, 3, 6)
+plt.title("Cython version", fontsize=12)
 ax.imshow(rgb[:,:,::-1] /255.0 * 0.5 + c_ren[:,:,np.newaxis] * 0.4)
 
 plt.show()
