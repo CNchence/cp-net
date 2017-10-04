@@ -6,26 +6,31 @@ from matplotlib import pylab as plt
 import cv2
 import numpy as np
 
-from cp_net.utils import renderer
+import pypcd
+
+from cp_net.utils.pointcloud_to_depth import *
 from cp_net.utils import inout, transform
 
 import argparse
 
+
 def main():
     parser = argparse.ArgumentParser(description='Data Augmentation Samples')
-    parser.add_argument('--path', '-p', default="../../../train_data/OcclusionChallengeICCV2015/models_ply",
-                        help='Path to ply data')
+    parser.add_argument('--path', '-p', default="../../train_data/OcclusionChallengeICCV2015/models_pcd",
+                        help='Path to pcd data')
     parser.add_argument('--out', '-o', default="output.png",
                         help='output image name')
     parser.add_argument('--objs', default=['Ape', 'Can', 'Cat', 'Driller', 'Duck', 'Eggbox', 'Glue', 'Holepuncher'],)
     args = parser.parse_args()
 
-
-    # load object ply
+        # load object ply
     models = []
     for obj_name in args.objs:
-        print 'load ply : ', obj_name
-        models.append(inout.load_ply(os.path.join(args.path, '{}.ply'.format(obj_name))))
+        print 'load pcd : ', obj_name
+        pc = pypcd.PointCloud.from_path(
+            os.path.join(args.path, obj_name + '.pcd'))
+        pc = np.asarray(pc.pc_data.tolist())[:,:3] ## only use xyz
+        models.append(pc)
 
     # Camera parameters
     K = np.eye(3)
@@ -48,8 +53,10 @@ def main():
 
     for i in range(len(models)):
         for j in range(3):
-            depth = renderer.render(
-                models[i], im_size, K, R[j], t, 0.1, 2.0, mode='depth')
+            model_trans = np.dot(R[j], models[i].transpose(1,0)) + t
+            depth = pointcloud_to_depth(
+                model_trans.transpose(1, 0), K, im_size)
+            # print time.time() - tt
             ax = fig.add_subplot(3, len(models), i + len(models) * j + 1)
             ax.imshow(depth)
 
