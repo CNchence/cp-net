@@ -27,6 +27,8 @@ import argparse
 import os
 import numpy as np
 
+root = '../..'
+
 def _transfer_pretrain_resnet50(src, dst):
     dst.conv1.W.data[:] = src.conv1.W.data
     dst.conv1.b.data[:] = src.conv1.b.data
@@ -85,7 +87,7 @@ def main():
     print('')
 
     n_class = 9
-    train_path = os.path.join(os.getcwd(), '../../../train_data/OcclusionChallengeICCV2015')
+    train_path = os.path.join(os.getcwd(), root, 'train_data/OcclusionChallengeICCV2015')
     caffe_model = 'ResNet-50-model.caffemodel'
 
     distance_sanity = 0.05
@@ -159,7 +161,6 @@ def main():
         # Resume from a snapshot
         chainer.serializers.load_npz(args.resume, trainer)
     else:
-        root = '../../..'
         npz_name = 'DualCenterProposalNetworkRes50FCN_occulusion_challenge.npz'
         caffemodel_name = 'ResNet-50-model.caffemodel'
         path = os.path.join(root, 'trained_data/', npz_name)

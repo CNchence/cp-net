@@ -27,6 +27,10 @@ import argparse
 import os
 import numpy as np
 
+
+root = '../../'
+
+
 def _transfer_pretrain_resnet50(src, dst):
     dst.conv1.W.data[:] = src.conv1.W.data
     dst.conv1.b.data[:] = src.conv1.b.data
@@ -87,7 +91,7 @@ def main():
     n_class = 2
     # n_class = 36
     n_view = 10
-    train_path = os.path.join(os.getcwd(), '../../../train_data/willow_models')
+    train_path = os.path.join(os.getcwd(), root, 'train_data/willow_models')
     caffe_model = 'ResNet-50-model.caffemodel'
 
     
@@ -157,7 +161,6 @@ def main():
         # Resume from a snapshot
         chainer.serializers.load_npz(args.resume, trainer)
     else:
-        root = '../../../'
         npz_name = 'CenterProposalNetworkRes50FCN.npz'
         caffemodel_name = 'ResNet-50-model.caffemodel'
         path = os.path.join(root, 'trained_data/', npz_name)

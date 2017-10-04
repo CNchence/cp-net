@@ -27,6 +27,10 @@ import argparse
 import os
 import numpy as np
 
+
+root = '../../'
+
+
 def _transfer_pretrain_resnet50(src, dst, use_res5=True):
     dst.conv1.W.data[:] = src.conv1.W.data
     dst.conv1.b.data[:] = src.conv1.b.data
@@ -94,7 +98,7 @@ def main():
     n_class = 20
     # n_class = 36
     n_view = 37
-    train_path = os.path.join(os.getcwd(), '../../../train_data/willow_models')
+    train_path = os.path.join(os.getcwd(), root, 'train_data/willow_models')
     caffe_model = 'ResNet-50-model.caffemodel'
 
     chainer.using_config('cudnn_deterministic', True)
@@ -183,7 +187,6 @@ def main():
         # Resume from a snapshot
         chainer.serializers.load_npz(args.resume, trainer)
     else:
-        root = '../../../'
         if args.ver2:
             npz_name = 'DepthInvariantNetworkRes50FCNVer2.npz'
         else:
