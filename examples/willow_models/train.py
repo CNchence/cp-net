@@ -19,13 +19,17 @@ import chainer.links.model.vision.resnet as R
 from chainer.training import extensions
 from chainer.links.caffe import CaffeFunction
 
-from cp_net.models.dual_cp_network import DualCenterProposalNetworkRes50FCN
-from cp_net.classifiers.dual_cp_classifier import DualCPNetClassifier
-from datasets.dual_cp_dataset import DualCPNetDataset
+from cp_net.models.cp_network import CenterProposalNetworkRes50FCN
+from cp_net.cp_classifier import CPNetClassifier
+from datasets.preprocessed_dataset import PreprocessedDataset
 
 import argparse
 import os
 import numpy as np
+
+
+root = '../../'
+
 
 def _transfer_pretrain_resnet50(src, dst):
     dst.conv1.W.data[:] = src.conv1.W.data
@@ -45,7 +49,7 @@ def _make_chainermodel_npz(path_npz, path_caffemodel, model, num_class):
     if not os.path.exists(path_caffemodel):
         raise IOError('The pre-trained caffemodel does not exist.')
     caffemodel = CaffeFunction(path_caffemodel)
-    chainermodel = DualCenterProposalNetworkRes50FCN(n_class=num_class)
+    chainermodel = CenterProposalNetworkRes50FCN(n_class=num_class)
     _transfer_pretrain_resnet50(caffemodel, chainermodel)
     classifier_model = L.Classifier(chainermodel)
     serializers.save_npz(path_npz, classifier_model, compression=False)
@@ -55,14 +59,14 @@ def _make_chainermodel_npz(path_npz, path_caffemodel, model, num_class):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Fully Convolutional Dual Center Pose Proposal Network for Pose Estimation')
+    parser = argparse.ArgumentParser(description='Fully Convolutional Center Pose Proposal Network for Pose Estimation')
     parser.add_argument('--batchsize', '-b', type=int, default=1,
                         help='Number of images in each mini-batch')
     parser.add_argument('--epoch', '-e', type=int, default=200,
                         help='Number of sweeps over the dataset to train')
     parser.add_argument('--gpu', '-g', type=int, default=-1,
                         help='GPU ID (negative value indicates CPU)')
-    parser.add_argument('--out', '-o', default='results/dual_cp',
+    parser.add_argument('--out', '-o', default='result',
                         help='Directory to output the result')
     parser.add_argument('--resume', '-r', default='',
                         help='Resume the training from snapshot')
@@ -74,7 +78,7 @@ def main():
                         help='Interval of displaying log to console')
     parser.add_argument('--frequency', '-f', type=int, default=-1,
                         help='Frequency of taking a snapshot')
-    parser.add_argument('--train_resnet', type=bool, default=True,
+    parser.add_argument('--train_resnet', type=bool, default=False,
                         help='train resnet')
 
     args = parser.parse_args()
@@ -84,18 +88,15 @@ def main():
     print('# epoch: {}'.format(args.epoch))
     print('')
 
-    n_class = 9
-    train_path = os.path.join(os.getcwd(), '../../../train_data/OcclusionChallengeICCV2015')
+    n_class = 2
+    # n_class = 36
+    n_view = 10
+    train_path = os.path.join(os.getcwd(), root, 'train_data/willow_models')
     caffe_model = 'ResNet-50-model.caffemodel'
 
-    distance_sanity = 0.05
-
-    chainer.using_config('cudnn_deterministic', True)
-
-    model = DualCPNetClassifier(DualCenterProposalNetworkRes50FCN(n_class=n_class, output_scale=1.0,
-                                                                  pretrained_model= not args.train_resnet),
-                                mothod="RANSAC",
-                                distance_sanity=distance_sanity)
+    
+    model = CPNetClassifier(CenterProposalNetworkRes50FCN(n_class=n_class,
+                                                          pretrained_model= not args.train_resnet))
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
@@ -106,10 +107,10 @@ def main():
     optimizer.setup(model)
 
     # load train data
-    train = DualCPNetDataset(train_path, range(0, 1200)[0::2], img_height = 192, img_width = 256,
-                             random=True, random_crop=True)
+    train = PreprocessedDataset(train_path, range(1,n_class), range(0, n_view - 2))
     # load test data
-    test = DualCPNetDataset(train_path, range(0, 1200)[1::2], img_height = 192, img_width = 256)
+    test = PreprocessedDataset(train_path, range(1,n_class), range(n_view - 2, n_view),
+                               img_size=(256, 192), random=False)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
@@ -146,11 +147,12 @@ def main():
 
     trainer.extend(extensions.PrintReport(
 
-        ['epoch',  'main/l_cls',  'main/l_cp', 'main/l_ocp',
-         'main/cls_acc', 'main/cp_acc', 'main/ocp_acc',
-         'val/main/l_cls',  'val/main/l_cp', 'val/main/l_ocp',
-         'val/main/cls_acc', 'val/main/cp_acc', 'val/main/ocp_acc',
+        ['epoch',  'main/c_loss',  'main/p_loss', 'main/r_loss',
+         'main/c_acc', 'main/p_acc', 'main/r_acc',
+         'val/main/c_loss',  'val/main/p_loss', 'val/main/r_loss',
+         'val/main/c_acc', 'val/main/p_acc', 'val/main/r_acc',
          'elapsed_time']))
+
 
     # Print a progress bar to stdout
     trainer.extend(extensions.ProgressBar())
@@ -159,8 +161,7 @@ def main():
         # Resume from a snapshot
         chainer.serializers.load_npz(args.resume, trainer)
     else:
-        root = '../../..'
-        npz_name = 'DualCenterProposalNetworkRes50FCN_occulusion_challenge.npz'
+        npz_name = 'CenterProposalNetworkRes50FCN.npz'
         caffemodel_name = 'ResNet-50-model.caffemodel'
         path = os.path.join(root, 'trained_data/', npz_name)
         path_caffemodel = os.path.join(root, 'trained_data/', caffemodel_name)

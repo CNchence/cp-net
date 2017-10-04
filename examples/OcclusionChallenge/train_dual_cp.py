@@ -19,13 +19,15 @@ import chainer.links.model.vision.resnet as R
 from chainer.training import extensions
 from chainer.links.caffe import CaffeFunction
 
-from cp_net.models.dual_cp_network_ver2 import DualCenterProposalNetworkRes50_predict7
+from cp_net.models.dual_cp_network import DualCenterProposalNetworkRes50FCN
 from cp_net.classifiers.dual_cp_classifier import DualCPNetClassifier
 from datasets.dual_cp_dataset import DualCPNetDataset
 
 import argparse
 import os
 import numpy as np
+
+root = '../..'
 
 def _transfer_pretrain_resnet50(src, dst):
     dst.conv1.W.data[:] = src.conv1.W.data
@@ -45,7 +47,7 @@ def _make_chainermodel_npz(path_npz, path_caffemodel, model, num_class):
     if not os.path.exists(path_caffemodel):
         raise IOError('The pre-trained caffemodel does not exist.')
     caffemodel = CaffeFunction(path_caffemodel)
-    chainermodel = DualCenterProposalNetworkRes50_predict7(n_class=num_class)
+    chainermodel = DualCenterProposalNetworkRes50FCN(n_class=num_class)
     _transfer_pretrain_resnet50(caffemodel, chainermodel)
     classifier_model = L.Classifier(chainermodel)
     serializers.save_npz(path_npz, classifier_model, compression=False)
@@ -62,7 +64,7 @@ def main():
                         help='Number of sweeps over the dataset to train')
     parser.add_argument('--gpu', '-g', type=int, default=-1,
                         help='GPU ID (negative value indicates CPU)')
-    parser.add_argument('--out', '-o', default='results/dual_cp_ver2',
+    parser.add_argument('--out', '-o', default='results/dual_cp',
                         help='Directory to output the result')
     parser.add_argument('--resume', '-r', default='',
                         help='Resume the training from snapshot')
@@ -74,32 +76,28 @@ def main():
                         help='Interval of displaying log to console')
     parser.add_argument('--frequency', '-f', type=int, default=-1,
                         help='Frequency of taking a snapshot')
-    parser.add_argument('--train_resnet', type=bool, default=False,
+    parser.add_argument('--train_resnet', type=bool, default=True,
                         help='train resnet')
-    parser.add_argument('--no-accuracy', dest='compute_acc', action='store_false')
-    parser.set_defaults(compute_acc=True)
 
     args = parser.parse_args()
 
     print('GPU: {}'.format(args.gpu))
     print('# Minibatch-size: {}'.format(args.batchsize))
     print('# epoch: {}'.format(args.epoch))
-    print('# compute accuracy: {}'.format(args.compute_acc))
     print('')
 
     n_class = 9
-    train_path = os.path.join(os.getcwd(), '../../../train_data/OcclusionChallengeICCV2015')
+    train_path = os.path.join(os.getcwd(), root, 'train_data/OcclusionChallengeICCV2015')
     caffe_model = 'ResNet-50-model.caffemodel'
 
     distance_sanity = 0.05
 
     chainer.using_config('cudnn_deterministic', True)
-    model = DualCPNetClassifier(DualCenterProposalNetworkRes50_predict7(n_class=n_class, output_scale=0.4,
-                                                                        pretrained_model= not args.train_resnet),
-                                method="DUAL",
-                                distance_sanity=distance_sanity,
-                                compute_accuracy=args.compute_acc,
-                                ver2=True)
+
+    model = DualCPNetClassifier(DualCenterProposalNetworkRes50FCN(n_class=n_class, output_scale=1.0,
+                                                                  pretrained_model= not args.train_resnet),
+                                mothod="RANSAC",
+                                distance_sanity=distance_sanity)
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
@@ -110,16 +108,10 @@ def main():
     optimizer.setup(model)
 
     # load train data
-    train = DualCPNetDataset(train_path, range(0, 1000), img_height = 384, img_width = 512,
-                             gaussian_noise=True,
-                             gamma_augmentation=True,
-                             avaraging=True,
-                             salt_pepper_noise=True,
-                             contrast=True,
-                             random_crop=False, ver2=True)
+    train = DualCPNetDataset(train_path, range(0, 1200)[0::2], img_height = 192, img_width = 256,
+                             random=True, random_crop=True)
     # load test data
-    test = DualCPNetDataset(train_path, range(1000, 1200), img_height = 384, img_width = 512,
-                            ver2=True)
+    test = DualCPNetDataset(train_path, range(0, 1200)[1::2], img_height = 192, img_width = 256)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
@@ -127,6 +119,7 @@ def main():
 
     updater = training.StandardUpdater(train_iter, optimizer, device=args.gpu)
     trainer = training.Trainer(updater, (args.epoch, 'epoch'), out=args.out)
+
 
     # Evaluate the model with the test dataset for each epoch
     evaluator = extensions.Evaluator(test_iter, model, device=args.gpu)
@@ -154,10 +147,11 @@ def main():
         #         'epoch', file_name='accuracy.png'))
 
     trainer.extend(extensions.PrintReport(
+
         ['epoch',  'main/l_cls',  'main/l_cp', 'main/l_ocp',
-         'main/cls_acc', 'main/cp_acc', 'main/ocp_acc', 'main/rot_acc', 'main/5cm5deg',
+         'main/cls_acc', 'main/cp_acc', 'main/ocp_acc',
          'val/main/l_cls',  'val/main/l_cp', 'val/main/l_ocp',
-         'val/main/cls_acc', 'val/main/cp_acc', 'val/main/ocp_acc', 'val/main/rot_acc', 'val/main/5cm5deg',
+         'val/main/cls_acc', 'val/main/cp_acc', 'val/main/ocp_acc',
          'elapsed_time']))
 
     # Print a progress bar to stdout
@@ -167,8 +161,7 @@ def main():
         # Resume from a snapshot
         chainer.serializers.load_npz(args.resume, trainer)
     else:
-        root = '../../..'
-        npz_name = 'DualCenterProposalNetworkRes50ver2_occulusion_challenge.npz'
+        npz_name = 'DualCenterProposalNetworkRes50FCN_occulusion_challenge.npz'
         caffemodel_name = 'ResNet-50-model.caffemodel'
         path = os.path.join(root, 'trained_data/', npz_name)
         path_caffemodel = os.path.join(root, 'trained_data/', caffemodel_name)
