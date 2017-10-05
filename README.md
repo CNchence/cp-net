@@ -1,6 +1,15 @@
 # cp-net
 object pose estimation using neural network
 
+
+## package explanation
+### cp_net
+pose estimation using deep neural network
+
+### cp_net_ros
+ros wrapper of cp_net
+
+
 ## Data Set Format Example
     dataset --- object01 
              |
