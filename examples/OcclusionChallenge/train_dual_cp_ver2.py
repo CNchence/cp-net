@@ -98,12 +98,15 @@ def main():
     distance_sanity = 0.05
 
     chainer.using_config('cudnn_deterministic', True)
-    model = DualCPNetClassifier(DualCenterProposalNetworkRes50_predict7(n_class=n_class, output_scale=0.4,
-                                                                        pretrained_model= not args.train_resnet),
-                                method="DUAL",
-                                distance_sanity=distance_sanity,
-                                compute_accuracy=args.compute_acc,
-                                ver2=True)
+    model = DualCPNetClassifier(
+        DualCenterProposalNetworkRes50_predict7(n_class=n_class, output_scale=0.4,
+                                                pretrained_model= not args.train_resnet),
+        method="DUAL",
+        basepath=train_path,
+        im_size=(512, 384),
+        distance_sanity=distance_sanity,
+        compute_accuracy=args.compute_acc,
+        ver2=True)
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current

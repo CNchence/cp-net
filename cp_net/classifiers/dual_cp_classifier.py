@@ -6,12 +6,15 @@ from chainer import link
 from chainer import reporter
 
 from cp_net.functions import dual_cp_accuracy
-from cp_net.functions import model_base_consensus_accuracy
+# from cp_net.functions.old.model_base_consensus_accuracy import ModelBaseConsensusAccuracy
+from cp_net.functions.model_base_consensus_accuracy import ModelBaseConsensusAccuracy
 from cp_net.functions.mask_mean_squared_error import mask_mean_squared_error
 
 class DualCPNetClassifier(link.Chain):
 
     def __init__(self, predictor, distance_sanity=0.1, method="RANSAC",
+                 basepath='OcclusionChallengeICCV2015',
+                 im_size=(640, 480),
                  ver2=False, compute_accuracy = True):
         super(DualCPNetClassifier, self).__init__(predictor=predictor)
         self.y = None
@@ -34,10 +37,12 @@ class DualCPNetClassifier(link.Chain):
 
         self.accfun = None
         if self.ver2:
-           self.accfun = model_base_consensus_accuracy.ModelBaseConsensusAccuracy(eps=0.6,
-                                                                                  distance_sanity=self.distance_sanity,
-                                                                                  method=self.method,
-                                                                                  ver2=self.ver2)
+           self.accfun = ModelBaseConsensusAccuracy(eps=0.6,
+                                                    distance_sanity=self.distance_sanity,
+                                                    method=self.method,
+                                                    im_size=im_size,
+                                                    base_path=basepath,
+                                                    ver2=self.ver2)
 
     def __call__(self, *args):
         assert len(args) >= 2

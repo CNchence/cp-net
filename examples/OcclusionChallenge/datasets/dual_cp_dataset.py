@@ -82,7 +82,7 @@ class DualCPNetDataset(dataset.DatasetMixin):
         ret = []
         for obj in self.objs:
             mask = cv2.imread(
-                os.path.join(path, "mask_inpaint", 'mask_{0:0>5}_{1}.png'.format(idx, obj)))
+                os.path.join(path, "mask", 'mask_{0:0>5}_{1}.png'.format(idx, obj)))
             ret.append(mask)
         return ret
 
@@ -114,7 +114,7 @@ class DualCPNetDataset(dataset.DatasetMixin):
             [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
         rgb = rgb - imagenet_mean
 
-        pc = np.load(os.path.join(rgbd_path, "xyz", 'xyz_{0:0>5}.npy'.format(idx)))
+        pc = np.load(os.path.join(rgbd_path, "xyz", 'xyz_{0:0>5}.npy'.format(idx)))  / 1000.0
         masks = self._get_mask(idx, rgbd_path)
         pos, rot = self._get_pose(idx)
         return rgb, depth, masks, pc, pos, rot
