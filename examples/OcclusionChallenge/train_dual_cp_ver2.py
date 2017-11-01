@@ -98,17 +98,18 @@ def main():
     caffe_model = 'ResNet-50-model.caffemodel'
 
     distance_sanity = 0.05
+    output_scale = 0.12
+    eps = 0.05
 
     chainer.using_config('cudnn_deterministic', True)
     model = DualCPNetClassifier(
-        DualCenterProposalNetworkRes50_predict7(n_class=n_class, output_scale=0.4,
-                                                pretrained_model= not args.train_resnet),
+        DualCenterProposalNetworkRes50_predict7(n_class=n_class, pretrained_model= not args.train_resnet),
         method="DUAL",
         basepath=train_path,
         im_size=(512, 384),
         distance_sanity=distance_sanity,
         compute_accuracy=args.compute_acc,
-        ver2=True)
+        output_scale=output_scale)
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
@@ -126,10 +127,10 @@ def main():
                              avaraging=True,
                              salt_pepper_noise=True,
                              contrast=True,
-                             random_crop=False, ver2=True)
+                             random_crop=False, metric_filter=output_scale + eps)
     # load test data
     test = DualCPNetDataset(train_path, test_range, img_height = 384, img_width = 512,
-                            ver2=True)
+                            metric_filter=output_scale + eps)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
