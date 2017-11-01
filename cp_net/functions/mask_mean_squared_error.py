@@ -1,10 +1,12 @@
 import numpy
 
+from chainer import function_node
 from chainer import function
 from chainer.utils import type_check
 
+from chainer import functions as F
 
-class MaskMeanSquaredError(function.Function):
+class MaskMeanSquaredError(function_node.FunctionNode):
 
     """Mask Mean squared error function."""
 
@@ -27,10 +29,10 @@ class MaskMeanSquaredError(function.Function):
             mask = x2[:, numpy.newaxis, numpy.newaxis, :, :]
         else:
             mask = x2[:, numpy.newaxis, :, :]
-        self.diff = (x0 - x1) * mask
+        self.diff = (inputs[0] - inputs[1]) * mask
         diff = self.diff.ravel()
-        self.non_zero_size = self.diff.size - self.diff[self.diff == 0].size
-        return numpy.array(diff.dot(diff) / self.non_zero_size, dtype=diff.dtype),
+        self.nonzero_size = diff[diff != 0].size
+        return numpy.array(diff.dot(diff) / self.nonzero_size, dtype=diff.dtype),
 
     def forward_gpu(self, inputs):
         x0, x1, x2 = inputs
@@ -40,17 +42,22 @@ class MaskMeanSquaredError(function.Function):
             mask = x2[:, numpy.newaxis, numpy.newaxis, :, :]
         else:
             mask = x2[:, numpy.newaxis, :, :]
-        self.diff = (x0 - x1) * mask
+        self.diff = (inputs[0] - inputs[1]) * mask
         diff = self.diff.ravel()
-        self.non_zero_size = self.diff.size - self.diff[self.diff == 0].size
-        return diff.dot(diff) / diff.dtype.type(self.non_zero_size),
+        self.nonzero_size = diff[diff != 0].size
+        return diff.dot(diff) / diff.dtype.type(self.nonzero_size),
 
-    def backward(self, inputs, gy):
-        coeff = gy[0] * gy[0].dtype.type(2. / self.non_zero_size)
-        gx0 = coeff * self.diff
-        return gx0, -gx0, -gx0
+    def backward(self, indexes, gy):
+        ret = []
+        gy0 = F.broadcast_to(gy[0], self.diff.shape) * (self.nonzero_size ==True)
+        gx0 = gy0 * self.diff * (2. / self.diff.size)
+        if 0 in indexes:
+            ret.append(gx0)
+        if 1 in indexes:
+            ret.append(-gx0)
+        return ret
 
 def mask_mean_squared_error(x0, x1, x2):
     # x2 is mask
-    return MaskMeanSquaredError()(x0, x1, x2)
+    return MaskMeanSquaredError().apply((x0, x1, x2))[0]
 

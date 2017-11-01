@@ -23,6 +23,8 @@ from cp_net.models.dual_cp_network_ver2 import DualCenterProposalNetworkRes50_pr
 from cp_net.classifiers.dual_cp_classifier import DualCPNetClassifier
 from datasets.dual_cp_dataset import DualCPNetDataset
 
+from sklearn.cross_validation import train_test_split
+
 import argparse
 import os
 import numpy as np
@@ -116,8 +118,9 @@ def main():
     optimizer = chainer.optimizers.MomentumSGD(lr=0.01, momentum=0.9)
     optimizer.setup(model)
 
+    train_range, test_range = train_test_split(np.arange(1213), test_size=100, random_state=1234)
     # load train data
-    train = DualCPNetDataset(train_path, range(0, 1000), img_height = 384, img_width = 512,
+    train = DualCPNetDataset(train_path, train_range, img_height = 384, img_width = 512,
                              gaussian_noise=True,
                              gamma_augmentation=True,
                              avaraging=True,
@@ -125,7 +128,7 @@ def main():
                              contrast=True,
                              random_crop=False, ver2=True)
     # load test data
-    test = DualCPNetDataset(train_path, range(1000, 1200), img_height = 384, img_width = 512,
+    test = DualCPNetDataset(train_path, test_range, img_height = 384, img_width = 512,
                             ver2=True)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)

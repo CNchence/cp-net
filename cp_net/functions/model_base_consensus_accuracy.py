@@ -61,7 +61,7 @@ def icp(src, dst, dst_search_idx=None, n_iter=50, thre_precent=95):
         old_a = new_a
 
     if len(src) > len(dst):
-        _t = - t
+        _t = - _t
         _R = _R.T
 
     return _t, _R

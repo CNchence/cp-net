@@ -36,7 +36,7 @@ class DualCPNetClassifier(link.Chain):
         self.compute_accuracy = compute_accuracy
 
         self.accfun = None
-        if self.ver2:
+        if self.ver2 and compute_accuracy:
            self.accfun = ModelBaseConsensusAccuracy(eps=0.6,
                                                     distance_sanity=self.distance_sanity,
                                                     method=self.method,
