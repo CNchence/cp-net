@@ -1,13 +1,9 @@
-
 import numpy as np
 
 import chainer.functions as F
 from chainer import link
 from chainer import reporter
 
-from cp_net.functions import dual_cp_accuracy
-# from cp_net.functions.old.model_base_consensus_accuracy import ModelBaseConsensusAccuracy
-from cp_net.functions.model_base_consensus_accuracy import ModelBaseConsensusAccuracy
 from cp_net.functions.mask_mean_squared_error import mask_mean_squared_error
 
 class DualCPNetClassifier(link.Chain):
@@ -16,7 +12,7 @@ class DualCPNetClassifier(link.Chain):
                  basepath='OcclusionChallengeICCV2015',
                  im_size=(640, 480),
                  output_scale=1.0,
-                 ver2=False, compute_accuracy = True):
+                 compute_accuracy = True):
         super(DualCPNetClassifier, self).__init__(predictor=predictor)
         self.y = None
         self.cls_loss = None
@@ -33,19 +29,19 @@ class DualCPNetClassifier(link.Chain):
         self.lambda2 = 1e1
         self.distance_sanity = distance_sanity
         self.method = method
-        self.ver2 = ver2
         self.compute_accuracy = compute_accuracy
 
         self.output_scale = output_scale
 
         self.accfun = None
-        if self.ver2 and compute_accuracy:
-           self.accfun = ModelBaseConsensusAccuracy(eps=0.6,
-                                                    distance_sanity=self.distance_sanity,
-                                                    method=self.method,
-                                                    im_size=im_size,
-                                                    base_path=basepath,
-                                                    ver2=self.ver2)
+        if compute_accuracy:
+            # from cp_net.functions.old.model_base_consensus_accuracy import ModelBaseConsensusAccuracy
+            from cp_net.functions.model_base_consensus_accuracy import ModelBaseConsensusAccuracy
+            self.accfun = ModelBaseConsensusAccuracy(eps=0.6,
+                                                     distance_sanity=self.distance_sanity,
+                                                     method=self.method,
+                                                     im_size=im_size,
+                                                     base_path=basepath)
 
     def __call__(self, *args):
         assert len(args) >= 2
@@ -79,16 +75,8 @@ class DualCPNetClassifier(link.Chain):
         reporter.report({'loss': self.loss}, self)
         if self.compute_accuracy:
             self.class_acc = F.accuracy(y_cls, t_cls, ignore_label=self.ignore_label)
-            if self.ver2:
-                self.cp_acc, self.ocp_acc, self.rot_acc, self.eval_rate= self.accfun(y_cls, y_cp * self.output_scale, y_ocp * self.output_scale,
-                                                                                     t_ocp, cp, rot, t_pc, depth, K, args[0])
-            else:
-                self.cp_acc, self.ocp_acc, self.rot_acc, self.eval_rate= \
-                    dual_cp_accuracy.dual_cp_accuracy(y_cls, y_cp, y_ocp, t_ocp, cp, rot, t_pc,
-                                                      eps=0.4,
-                                                      distance_sanity=self.distance_sanity,
-                                                      method=self.method,
-                                                      ver2=self.ver2)
+            self.cp_acc, self.ocp_acc, self.rot_acc, self.eval_rate= self.accfun(y_cls, y_cp * self.output_scale, y_ocp * self.output_scale,
+                                                                                 cp, rot, t_pc, depth, K, args[0])
             reporter.report({'cls_acc': self.class_acc}, self)
             reporter.report({'cp_acc': self.cp_acc}, self)
             reporter.report({'ocp_acc': self.ocp_acc}, self)

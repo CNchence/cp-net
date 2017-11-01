@@ -11,8 +11,6 @@ from chainer import function
 import chainer.functions as F
 from chainer.utils import type_check
 
-# tmp
-import time
 import cv2
 
 import pose_estimation
@@ -186,13 +184,12 @@ class ModelBaseConsensusAccuracy(function.Function):
         self.pose_estimator.set_ransac_count(100)
 
     def forward(self, inputs):
-        y_cls, y_cp, y_ocp, t_ocp, t_cp, t_rot, t_pc, depth, K, rgb  = inputs
+        y_cls, y_cp, y_ocp, t_cp, t_rot, t_pc, depth, K, rgb  = inputs
         ## gpu to cpu
         if cuda.get_array_module(*inputs) != np:
             y_cls = cuda.to_cpu(y_cls)
             y_cp = cuda.to_cpu(y_cp)
             y_ocp = cuda.to_cpu(y_ocp)
-            t_ocp = cuda.to_cpu(t_ocp)
             t_cp = cuda.to_cpu(t_cp)
             t_rot = cuda.to_cpu(t_rot)
             t_pc = cuda.to_cpu(t_pc)
@@ -230,8 +227,8 @@ class ModelBaseConsensusAccuracy(function.Function):
         y_ocp = masks[:, :, np.newaxis, :, :] * y_ocp.reshape(batch_size, n_class - 1, 3, img_h, img_w)
         y_cp = np.sum(y_cp, axis=1)
         y_ocp = np.sum(y_ocp, axis=1)
-        t_ocp = masks[:, :, np.newaxis, :, :] * t_ocp.reshape(batch_size, n_class - 1, 3, img_h, img_w)
-        t_ocp = np.sum(t_ocp, axis=1)
+        # t_ocp = masks[:, :, np.newaxis, :, :] * t_ocp.reshape(batch_size, n_class - 1, 3, img_h, img_w)
+        # t_ocp = np.sum(t_ocp, axis=1)
 
         ## check dual cp distance sanity
         if self.distance_sanity:
@@ -261,7 +258,7 @@ class ModelBaseConsensusAccuracy(function.Function):
         y_cp_reshape = (y_cp + t_pc).reshape(batch_size, 3, -1)
         t_pc_reshape = t_pc.reshape(batch_size, 3, -1)
         y_ocp_reshape = y_ocp.reshape(batch_size, 3, -1)
-        t_ocp_reshape = t_ocp.reshape(batch_size, 3, -1)
+        # t_ocp_reshape = t_ocp.reshape(batch_size, 3, -1)
 
         for i_b in six.moves.range(batch_size):
             self.pose_estimator.set_depth(depth[i_b])
@@ -289,21 +286,22 @@ class ModelBaseConsensusAccuracy(function.Function):
 
                 t_pc_nonzero = t_pc_reshape[i_b][:, pmask][:, refine_mask]
                 y_ocp_nonzero = y_ocp_reshape[i_b][:, pmask][:, refine_mask]
+                # print "--"
+                # print np.max(np.abs(y_ocp_nonzero - t_ocp_nonzero), axis =1)
+                # print np.median(np.abs(y_ocp_nonzero - t_ocp_nonzero), axis =1)
+                # print np.min(np.abs(y_ocp_nonzero - t_ocp_nonzero), axis =1)
                 self.pose_estimator.set_mask(pred_mask[i_b, i_c])
                 self.pose_estimator.set_object_id(i_c)
                 ret_ocp, ret_R = self.pose_estimator.ransac_estimation(t_pc_nonzero, y_ocp_nonzero)
                 # ret_ocp, ret_R = pose_estimation.model_base_ransac_estimation_cy(t_pc_nonzero, y_ocp_nonzero, self.models_pc[i_c],
                 #                                                                  depth[i_b], K[i_b], pred_mask[i_b, i_c],
                 #                                                                  self.im_size)             
-                # print "---"
-                # print ret_ocp
-                # print ret_R
                 ## icp refinement
-                icp_ocp, icp_R = icp(np.dot(ret_R.T, t_pc_nonzero - ret_ocp[:, np.newaxis]),
-                                     self.models_pc[i_c].transpose(1,0),
-                                     dst_search_idx=self.flann_search_idx[i_c])
-                ret_R = np.dot(ret_R, icp_R.T)
-                ret_ocp -= np.dot(ret_R, icp_ocp)
+                # icp_ocp, icp_R = icp(np.dot(ret_R.T, t_pc_nonzero - ret_ocp[:, np.newaxis]),
+                #                      self.models_pc[i_c].transpose(1,0),
+                #                      dst_search_idx=self.flann_search_idx[i_c])
+                # ret_R = np.dot(ret_R, icp_R.T)
+                # ret_ocp -= np.dot(ret_R, icp_ocp)
 
                 if False:
                     imagenet_mean = np.array(
@@ -327,7 +325,6 @@ class ModelBaseConsensusAccuracy(function.Function):
                 # np.save("test_pc_all.npy", (t_pc_reshape[i_b][:, pmask] - estimated_cp[i_b, i_c][:, np.newaxis]))
                 # np.save("test_pc.npy", t_pc_demean)
 
-                # time.sleep(1)
                 estimated_ocp[i_b, i_c] =  ret_ocp
                 estimated_R[i_b, i_c] = ret_R
 
@@ -339,8 +336,8 @@ class ModelBaseConsensusAccuracy(function.Function):
         return np.asarray(ret_cp, dtype=y_cp.dtype), np.asarray(ret_ocp, dtype=y_ocp.dtype), np.asarray(ret_rot, dtype=y_ocp.dtype), np.asarray(ret_rate, dtype=y_ocp.dtype)
 
 
-def model_base_consensus_accuracy(y_cls, y_cp, y_ocp, t_ocp, t_cp, t_rot, t_pc, depth, K,
+def model_base_consensus_accuracy(y_cls, y_cp, y_ocp, t_cp, t_rot, t_pc, depth, K,
                                   eps=0.2, distance_sanity=0.1, method="SVD", ver2=False):
     return ModelBaseConsensusAccuracy(eps=eps,
                                       distance_sanity=distance_sanity,
-                                      method=method, ver2=ver2)(y_cls, y_cp, y_ocp, t_ocp, t_cp, t_rot, t_pc, depth, K)
+                                      method=method, ver2=ver2)(y_cls, y_cp, y_ocp, t_cp, t_rot, t_pc, depth, K)
