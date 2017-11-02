@@ -331,7 +331,7 @@ class ModelBaseConsensusAccuracy(function.Function):
 
         ret_cp, ret_ocp, ret_rot, ret_rate = calc_accuracy_impl(estimated_cp, estimated_ocp,
                                                                 estimated_R, t_cp, t_rot, batch_size,
-                                                                n_class, debug=True)
+                                                                n_class, debug=False)
 
         return np.asarray(ret_cp, dtype=y_cp.dtype), np.asarray(ret_ocp, dtype=y_ocp.dtype), np.asarray(ret_rot, dtype=y_ocp.dtype), np.asarray(ret_rate, dtype=y_ocp.dtype)
 
