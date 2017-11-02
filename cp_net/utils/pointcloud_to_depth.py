@@ -28,17 +28,4 @@ def pointcloud_to_depth(pc, K, img_size):
     img_depth = np.zeros(img_size[::-1])
     img_depth[ys[idx], xs[idx]] = zs[idx]
 
-    # refine = True
-
-    # if refine == True:
-    #     grid = np.arange(5) - 1
-    #     mesh_x, mesh_y = np.meshgrid(grid, grid)
-    #     for dx, dy in zip(mesh_x.ravel(), mesh_y.ravel()):
-    #         mask = (img_depth[ys[idx] + dy, xs[idx] + dx] - zs[idx] > 0.005)
-    #         img_depth[ys[idx][mask] + dy ,xs[idx][mask] + dx] = 0
-
-    # kernel = np.ones((5,5),np.uint8)
-    # img_depth_near_half = img_depth * (img_depth < np.median(img_depth[img_depth > 0]))
-    # img_depth = cv2.morphologyEx(img_depth_near_half, cv2.MORPH_CLOSE, kernel)
-
     return img_depth

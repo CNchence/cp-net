@@ -9,7 +9,7 @@ import chainer.links.model.vision.resnet as R
 from chainer.functions.array import concat
 
 class DualCenterProposalNetworkRes50_predict7(chainer.Chain):
-    def __init__(self, n_class=36, pretrained_model = None, output_scale=1.0):
+    def __init__(self, n_class=36, pretrained_model = None):
         if pretrained_model:
             # As a sampling process is time-consuming,
             # we employ a zero initializer for faster computation.
@@ -19,7 +19,6 @@ class DualCenterProposalNetworkRes50_predict7(chainer.Chain):
             # employ default initializers used in the original paper
             kwargs = {'initialW': normal.HeNormal(scale=1.0)}
         self.n_class = n_class
-        self.output_scale = output_scale
         super(DualCenterProposalNetworkRes50_predict7, self).__init__(
             # resnet50
             conv1=L.Convolution2D(3, 64, 7, 2, 3, **kwargs),
@@ -107,7 +106,7 @@ class DualCenterProposalNetworkRes50_predict7(chainer.Chain):
         h_ocp = concat.concat((h_ocp, pool1_4), axis=1)
         h_ocp = self.upscore_ocp2(h_ocp)
 
-        cp_score = F.tanh(h_cp) * self.output_scale
-        ocp_score = F.tanh(h_ocp) * self.output_scale
+        cp_score = F.tanh(h_cp)
+        ocp_score = F.tanh(h_ocp)
 
         return score, cp_score, ocp_score

@@ -23,6 +23,8 @@ from cp_net.models.dual_cp_network_ver2 import DualCenterProposalNetworkRes50_pr
 from cp_net.classifiers.dual_cp_classifier import DualCPNetClassifier
 from datasets.dual_cp_dataset import DualCPNetDataset
 
+from sklearn.cross_validation import train_test_split
+
 import argparse
 import os
 import numpy as np
@@ -96,14 +98,18 @@ def main():
     caffe_model = 'ResNet-50-model.caffemodel'
 
     distance_sanity = 0.05
+    output_scale = 0.12
+    eps = 0.05
 
     chainer.using_config('cudnn_deterministic', True)
-    model = DualCPNetClassifier(DualCenterProposalNetworkRes50_predict7(n_class=n_class, output_scale=0.4,
-                                                                        pretrained_model= not args.train_resnet),
-                                method="DUAL",
-                                distance_sanity=distance_sanity,
-                                compute_accuracy=args.compute_acc,
-                                ver2=True)
+    model = DualCPNetClassifier(
+        DualCenterProposalNetworkRes50_predict7(n_class=n_class, pretrained_model= not args.train_resnet),
+        method="DUAL",
+        basepath=train_path,
+        im_size=(512, 384),
+        distance_sanity=distance_sanity,
+        compute_accuracy=args.compute_acc,
+        output_scale=output_scale)
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
@@ -113,17 +119,18 @@ def main():
     optimizer = chainer.optimizers.MomentumSGD(lr=0.01, momentum=0.9)
     optimizer.setup(model)
 
+    train_range, test_range = train_test_split(np.arange(1213), test_size=100, random_state=1234)
     # load train data
-    train = DualCPNetDataset(train_path, range(0, 1000), img_height = 384, img_width = 512,
+    train = DualCPNetDataset(train_path, train_range, img_height = 384, img_width = 512,
                              gaussian_noise=True,
                              gamma_augmentation=True,
                              avaraging=True,
                              salt_pepper_noise=True,
                              contrast=True,
-                             random_crop=False, ver2=True)
+                             random_crop=False, metric_filter=output_scale + eps)
     # load test data
-    test = DualCPNetDataset(train_path, range(1000, 1200), img_height = 384, img_width = 512,
-                            ver2=True)
+    test = DualCPNetDataset(train_path, test_range, img_height = 384, img_width = 512,
+                            metric_filter=output_scale + eps)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
@@ -140,9 +147,12 @@ def main():
     # The "main" refers to the target link of the "main" optimizer.
     trainer.extend(extensions.dump_graph('main/loss'))
 
-    # Take a snapshot for each specified epoch
+    # Take a snapshot and snapshot object for each specified epoch
     frequency = args.epoch if args.frequency == -1 else max(1, args.frequency)
     trainer.extend(extensions.snapshot(), trigger=(frequency, 'epoch'))
+    trainer.extend(extensions.snapshot_object(
+        model.predictor, filename='model_iteration-{.updater.iteration}'),
+                   trigger=(frequency, 'epoch'))
 
     # Write a log of evaluation statistics for each epoch
     trainer.extend(extensions.LogReport())
