@@ -2,7 +2,7 @@
 # Author: Yusuke Oshiro (oshiroy0501@gmail.com)
 # contribution:
 # - support multi object rendering
-#
+# - render with label
 
 # Original
 #
@@ -102,6 +102,28 @@ varying float v_eye_depth;
 
 void main() {
     gl_FragColor = vec4(v_eye_depth, 0.0, 0.0, 1.0);
+}
+"""
+
+# Label vertex shader
+#-------------------------------------------------------------------------------
+_label_vertex_code = """
+uniform mat4 u_mv;
+uniform mat4 u_mvp;
+attribute vec3 a_position;
+attribute vec3 a_color;
+
+void main() {
+    gl_Position = u_mvp * vec4(a_position, 1.0);
+}
+"""
+
+# Label fragment shader
+#-------------------------------------------------------------------------------
+_label_fragment_code = """
+uniform float label;
+void main() {
+    gl_FragColor = vec4(vec3(label), 1.0);
 }
 """
 
@@ -259,9 +281,57 @@ def draw_depth(shape, vertex_buffers, index_buffers, mat_models, mat_views, mat_
 
     return depth
 
+def draw_label(shape, vertex_buffers, index_buffers, mat_models, mat_views, mat_projs, labels):
+    assert(len(vertex_buffers) == len(index_buffers))
+    assert(len(vertex_buffers) == len(mat_models))
+    assert(len(vertex_buffers) == len(mat_views))
+    assert(len(vertex_buffers) == len(mat_projs))
+    assert(labels is not None)
+    assert(len(vertex_buffers) == len(labels))
+
+    program = gloo.Program(_label_vertex_code, _label_fragment_code)
+
+    # Frame buffer object
+    color_buf = np.zeros((shape[0], shape[1], 4), np.float32).view(gloo.TextureFloat2D)
+    depth_buf = np.zeros((shape[0], shape[1]), np.float32).view(gloo.DepthTexture)
+    fbo = gloo.FrameBuffer(color=color_buf, depth=depth_buf)
+    fbo.activate()
+
+    # OpenGL setup
+    gl.glEnable(gl.GL_DEPTH_TEST)
+    gl.glEnable(gl.GL_CULL_FACE)
+    gl.glCullFace(gl.GL_BACK) # Back-facing polygons will be culled
+    gl.glClearColor(0.0, 0.0, 0.0, 0.0)
+    gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
+    gl.glViewport(0, 0, shape[1], shape[0])
+
+    for i in range(len(vertex_buffers)):
+        vertex_buffer = vertex_buffers[i]
+        index_buffer = index_buffers[i]
+        mat_model = mat_models[i]
+        mat_view = mat_views[i]
+        mat_proj = mat_projs[i]
+        label = labels[i]
+        program.bind(vertex_buffer)
+        program['u_mv'] = _compute_model_view(mat_model, mat_view)
+        # program['u_nm'] = compute_normal_matrix(model, view)
+        program['u_mvp'] = _compute_model_view_proj(mat_model, mat_view, mat_proj)
+        program['label'] = label
+        # Rendering
+        program.draw(gl.GL_TRIANGLES, index_buffer)
+
+    # Retrieve the contents of the FBO texture
+    label_map = np.zeros((shape[0], shape[1], 4), dtype=np.float32)
+    gl.glReadPixels(0, 0, shape[1], shape[0], gl.GL_RGBA, gl.GL_FLOAT, label_map)
+    label_map.shape = shape[0], shape[1], 4
+    label_map = label_map[::-1, :]
+    label_map = label_map[:, :, 0]
+    fbo.deactivate()
+
+    return label_map
 #-------------------------------------------------------------------------------
 def render(model_list, im_size, K, R_list, t_list, clip_near=100, clip_far=2000,
-           surf_color=None, bg_color=(0.0, 0.0, 0.0, 0.0),
+           surf_color=None, bg_color=(0.0, 0.0, 0.0, 0.0), labels=None,
            ambient_weight=0.1, mode='rgb+depth'):
 
     vertex_buffers = []
@@ -324,14 +394,16 @@ def render(model_list, im_size, K, R_list, t_list, clip_near=100, clip_far=2000,
 
     # Rendering
     #---------------------------------------------------------------------------
-    render_rgb = mode in ['rgb', 'rgb+depth']
-    render_depth = mode in ['depth', 'rgb+depth']
+    render_rgb = mode in ['rgb', 'rgb+depth', 'rgb+label', 'rgb+depth+label']
+    render_depth = mode in ['depth', 'rgb+depth', 'rgb+label', 'rgb+depth+label']
+    render_label = mode in ['label', 'rgb+label', 'rgb+depth', 'rgb+depth+label']
 
     window = app.Window(visible=False)
 
-    global rgb, depth
+    global rgb, depth, label_map
     rgb = None
     depth = None
+    label_map = None
 
     @window.event
     def on_draw(dt):
@@ -347,6 +419,11 @@ def render(model_list, im_size, K, R_list, t_list, clip_near=100, clip_far=2000,
             global depth
             depth = draw_depth(shape, vertex_buffers, index_buffers, mat_models,
                                mat_views, mat_projs)
+        if render_label:
+            # Render label image
+            global label_map
+            label_map = draw_label(shape, vertex_buffers, index_buffers, mat_models,
+                                   mat_views, mat_projs, labels)
 
     app.run(framecount=0) # The on_draw function is called framecount+1 times
     window.close()
@@ -357,8 +434,16 @@ def render(model_list, im_size, K, R_list, t_list, clip_near=100, clip_far=2000,
         return rgb
     elif mode == 'depth':
         return depth
+    elif mode == 'label':
+        return label_map
     elif mode == 'rgb+depth':
         return rgb, depth
+    elif mode == 'rgb+label':
+        return rgb, label_map
+    elif mode == 'depth+label':
+        return depth, label_map
+    elif mode == 'rgb+depth+label':
+        return rgb, depth, label_map
     else:
         print 'Error: Unknown rendering mode.'
         exit(-1)

@@ -4,6 +4,9 @@ import cv2
 import numpy as np
 import os
 
+from skimage.color.colorlabel import DEFAULT_COLORS
+from skimage.color.colorlabel import color_dict
+
 from cp_net.utils import multi_object_renderer
 from cp_net.utils import renderer
 from cp_net.utils import inout
@@ -37,14 +40,15 @@ def main():
                 inout.load_gt_pose_dresden(gt_fpath))
         gt_poses.append(gt_poses_obj)
 
-    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(16, 10))
-    repeats = 10
+    fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(16, 10))
+    repeats = 100
     for i in range(repeats):
         print "multi object rendering {} / {}".format(i, repeats)
         rot_list = []
         pos_list = []
         indices = np.random.choice(len(objs), 1)
         model_list = []
+        labels = []
         for obj_id, obj_name in enumerate(objs):
             # pos = np.random.rand(3) - 0.5
             # pos = np.zeros(3)
@@ -60,9 +64,17 @@ def main():
                 model_list.append(models[obj_id])
                 # rgb_ren, depth_ren = renderer.render(
                 #     models[obj_id], im_size, K, rot, pos, 0.1, 4.0, mode='rgb+depth')
+                labels.append(obj_id + 1)
+        rgb_ren, depth_ren, label_ren  = multi_object_renderer.render(
+            model_list, im_size, K, rot_list, pos_list, 0.1, 4.0,
+            labels=labels, mode='rgb+depth+label')
 
-        rgb_ren, depth_ren = multi_object_renderer.render(
-            model_list, im_size, K, rot_list, pos_list, 0.1, 4.0, mode='rgb+depth')
+        label_img = np.zeros((im_size[1], im_size[0], 3))
+        n_colors = len(DEFAULT_COLORS)
+        for lbl_id in labels:
+            color = color_dict[DEFAULT_COLORS[lbl_id % n_colors]]
+            label_img[(label_ren == lbl_id), :] = color
+
         # Clear axes
         for ax in axes.flatten():
             ax.clear()
@@ -70,6 +82,8 @@ def main():
         axes[0].set_title('RGB image')
         axes[1].imshow(depth_ren)
         axes[1].set_title('Depth image')
+        axes[2].imshow(label_img)
+        axes[2].set_title('Label image')
         fig.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95,
                             hspace=0.15, wspace=0.15)
         plt.draw()
