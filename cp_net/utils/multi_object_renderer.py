@@ -1,3 +1,11 @@
+# Additional
+# Author: Yusuke Oshiro (oshiroy0501@gmail.com)
+# contribution:
+# - support multi object rendering
+# - render with label
+
+# Original
+#
 # Author: Tomas Hodan (hodantom@cmp.felk.cvut.cz)
 # Center for Machine Perception, Czech Technical University in Prague
 
@@ -97,6 +105,28 @@ void main() {
 }
 """
 
+# Label vertex shader
+#-------------------------------------------------------------------------------
+_label_vertex_code = """
+uniform mat4 u_mv;
+uniform mat4 u_mvp;
+attribute vec3 a_position;
+attribute vec3 a_color;
+
+void main() {
+    gl_Position = u_mvp * vec4(a_position, 1.0);
+}
+"""
+
+# Label fragment shader
+#-------------------------------------------------------------------------------
+_label_fragment_code = """
+uniform float label;
+void main() {
+    gl_FragColor = vec4(vec3(label), 1.0);
+}
+"""
+
 # Functions to calculate transformation matrices
 # Note that OpenGL expects the matrices to be saved column-wise
 # (Ref: http://www.songho.ca/opengl/gl_transform.html)
@@ -156,16 +186,14 @@ def _compute_calib_proj(K, x0, y0, w, h, nc, fc, window_coords='y_down'):
     return proj.T
 
 #-------------------------------------------------------------------------------
-def draw_color(shape, vertex_buffer, index_buffer, mat_model, mat_view, mat_proj,
-               ambient_weight, bg_color):
+def draw_color(shape, vertex_buffers, index_buffers, mat_models, mat_views,
+               mat_projs, ambient_weight, bg_color):
+    assert(len(vertex_buffers) == len(index_buffers))
+    assert(len(vertex_buffers) == len(mat_models))
+    assert(len(vertex_buffers) == len(mat_views))
+    assert(len(vertex_buffers) == len(mat_projs))
 
     program = gloo.Program(_color_vertex_code, _color_fragment_code)
-    program.bind(vertex_buffer)
-    program['u_light_eye_pos'] = [0, 0, 0]
-    program['u_light_ambient_w'] = ambient_weight
-    program['u_mv'] = _compute_model_view(mat_model, mat_view)
-    # program['u_nm'] = compute_normal_matrix(model, view)
-    program['u_mvp'] = _compute_model_view_proj(mat_model, mat_view, mat_proj)
 
     # Frame buffer object
     color_buf = np.zeros((shape[0], shape[1], 4), np.float32).view(gloo.TextureFloat2D)
@@ -181,8 +209,20 @@ def draw_color(shape, vertex_buffer, index_buffer, mat_model, mat_view, mat_proj
     gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
     gl.glViewport(0, 0, shape[1], shape[0])
 
-    # Rendering
-    program.draw(gl.GL_TRIANGLES, index_buffer)
+    for i in xrange(len(vertex_buffers)):
+        vertex_buffer = vertex_buffers[i]
+        index_buffer = index_buffers[i]
+        mat_model = mat_models[i]
+        mat_view = mat_views[i]
+        mat_proj = mat_projs[i]
+
+        program.bind(vertex_buffer)
+        program['u_light_eye_pos'] = [0, 0, 0]
+        program['u_light_ambient_w'] = ambient_weight
+        program['u_mv'] = _compute_model_view(mat_model, mat_view)
+        program['u_mvp'] = _compute_model_view_proj(mat_model, mat_view, mat_proj)
+        # Rendering
+        program.draw(gl.GL_TRIANGLES, index_buffer)
 
     # Retrieve the contents of the FBO texture
     rgb = np.zeros((shape[0], shape[1], 4), dtype=np.float32)
@@ -195,12 +235,13 @@ def draw_color(shape, vertex_buffer, index_buffer, mat_model, mat_view, mat_proj
 
     return rgb
 
-def draw_depth(shape, vertex_buffer, index_buffer, mat_model, mat_view, mat_proj):
+def draw_depth(shape, vertex_buffers, index_buffers, mat_models, mat_views, mat_projs):
+    assert(len(vertex_buffers) == len(index_buffers))
+    assert(len(vertex_buffers) == len(mat_models))
+    assert(len(vertex_buffers) == len(mat_views))
+    assert(len(vertex_buffers) == len(mat_projs))
 
     program = gloo.Program(_depth_vertex_code, _depth_fragment_code)
-    program.bind(vertex_buffer)
-    program['u_mv'] = _compute_model_view(mat_model, mat_view)
-    program['u_mvp'] = _compute_model_view_proj(mat_model, mat_view, mat_proj)
 
     # Frame buffer object
     color_buf = np.zeros((shape[0], shape[1], 4), np.float32).view(gloo.TextureFloat2D)
@@ -208,6 +249,7 @@ def draw_depth(shape, vertex_buffer, index_buffer, mat_model, mat_view, mat_proj
     fbo = gloo.FrameBuffer(color=color_buf, depth=depth_buf)
     fbo.activate()
 
+    # OpenGL setup
     gl.glEnable(gl.GL_DEPTH_TEST)
     gl.glEnable(gl.GL_CULL_FACE)
     gl.glCullFace(gl.GL_BACK) # Back-facing polygons will be culled
@@ -215,8 +257,18 @@ def draw_depth(shape, vertex_buffer, index_buffer, mat_model, mat_view, mat_proj
     gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
     gl.glViewport(0, 0, shape[1], shape[0])
 
-    # Rendering
-    program.draw(gl.GL_TRIANGLES, index_buffer)
+    for i in range(len(vertex_buffers)):
+        vertex_buffer = vertex_buffers[i]
+        index_buffer = index_buffers[i]
+        mat_model = mat_models[i]
+        mat_view = mat_views[i]
+        mat_proj = mat_projs[i]
+        program.bind(vertex_buffer)
+        program['u_mv'] = _compute_model_view(mat_model, mat_view)
+        # program['u_nm'] = compute_normal_matrix(model, view)
+        program['u_mvp'] = _compute_model_view_proj(mat_model, mat_view, mat_proj)
+        # Rendering
+        program.draw(gl.GL_TRIANGLES, index_buffer)
 
     # Retrieve the contents of the FBO texture
     depth = np.zeros((shape[0], shape[1], 4), dtype=np.float32)
@@ -229,60 +281,129 @@ def draw_depth(shape, vertex_buffer, index_buffer, mat_model, mat_view, mat_proj
 
     return depth
 
-#-------------------------------------------------------------------------------
-def render(model, im_size, K, R, t, clip_near=100, clip_far=2000,
-           surf_color=None, bg_color=(0.0, 0.0, 0.0, 0.0),
-           ambient_weight=0.1, mode='rgb+depth'):
-    # Process input data
-    #---------------------------------------------------------------------------
-    # Make sure vertices and faces are provided in the model
-    assert({'pts', 'faces'}.issubset(set(model.keys())))
+def draw_label(shape, vertex_buffers, index_buffers, mat_models, mat_views, mat_projs, labels):
+    assert(len(vertex_buffers) == len(index_buffers))
+    assert(len(vertex_buffers) == len(mat_models))
+    assert(len(vertex_buffers) == len(mat_views))
+    assert(len(vertex_buffers) == len(mat_projs))
+    assert(labels is not None)
+    assert(len(vertex_buffers) == len(labels))
 
-    # Set color of vertices
-    if not surf_color:
-        if 'colors' in model.keys():
-            assert(model['pts'].shape[0] == model['colors'].shape[0])
-            colors = model['colors']
-            if colors.max() > 1.0:
-                colors /= 255.0 # Color values are expected to be in range [0, 1]
+    program = gloo.Program(_label_vertex_code, _label_fragment_code)
+
+    # Frame buffer object
+    color_buf = np.zeros((shape[0], shape[1], 4), np.float32).view(gloo.TextureFloat2D)
+    depth_buf = np.zeros((shape[0], shape[1]), np.float32).view(gloo.DepthTexture)
+    fbo = gloo.FrameBuffer(color=color_buf, depth=depth_buf)
+    fbo.activate()
+
+    # OpenGL setup
+    gl.glEnable(gl.GL_DEPTH_TEST)
+    gl.glEnable(gl.GL_CULL_FACE)
+    gl.glCullFace(gl.GL_BACK) # Back-facing polygons will be culled
+    gl.glClearColor(0.0, 0.0, 0.0, 0.0)
+    gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
+    gl.glViewport(0, 0, shape[1], shape[0])
+
+    for i in range(len(vertex_buffers)):
+        vertex_buffer = vertex_buffers[i]
+        index_buffer = index_buffers[i]
+        mat_model = mat_models[i]
+        mat_view = mat_views[i]
+        mat_proj = mat_projs[i]
+        label = labels[i]
+        program.bind(vertex_buffer)
+        program['u_mv'] = _compute_model_view(mat_model, mat_view)
+        # program['u_nm'] = compute_normal_matrix(model, view)
+        program['u_mvp'] = _compute_model_view_proj(mat_model, mat_view, mat_proj)
+        program['label'] = label
+        # Rendering
+        program.draw(gl.GL_TRIANGLES, index_buffer)
+
+    # Retrieve the contents of the FBO texture
+    label_map = np.zeros((shape[0], shape[1], 4), dtype=np.float32)
+    gl.glReadPixels(0, 0, shape[1], shape[0], gl.GL_RGBA, gl.GL_FLOAT, label_map)
+    label_map.shape = shape[0], shape[1], 4
+    label_map = label_map[::-1, :]
+    label_map = label_map[:, :, 0]
+    fbo.deactivate()
+
+    return label_map
+#-------------------------------------------------------------------------------
+def render(model_list, im_size, K, R_list, t_list, clip_near=100, clip_far=2000,
+           surf_color=None, bg_color=(0.0, 0.0, 0.0, 0.0), labels=None,
+           ambient_weight=0.1, mode='rgb+depth'):
+
+    vertex_buffers = []
+    index_buffers = []
+    mat_models = []
+    mat_views = []
+    mat_projs = []
+    assert(len(model_list) == len(R_list))
+    assert(len(model_list) == len(t_list))
+
+    for i in xrange(len(model_list)):
+        model = model_list[i]
+        R = R_list[i]
+        t = t_list[i]
+
+        # Make sure vertices and faces are provided in the model
+        assert({'pts', 'faces'}.issubset(set(model.keys())))
+
+        # Set color of vertices
+        if not surf_color:
+            if 'colors' in model.keys():
+                assert(model['pts'].shape[0] == model['colors'].shape[0])
+                colors = model['colors']
+                if colors.max() > 1.0:
+                    colors /= 255.0 # Color values are expected to be in range [0, 1]
+            else:
+                colors = np.ones((model['pts'].shape[0], 3), np.float32) * 0.5
         else:
-            colors = np.ones((model['pts'].shape[0], 3), np.float32) * 0.5
-    else:
-        colors = np.tile(list(surf_color) + [1.0], [model['pts'].shape[0], 1])
-    vertices_type = [('a_position', np.float32, 3),
-                     #('a_normal', np.float32, 3),
-                     ('a_color', np.float32, colors.shape[1])]
-    vertices = np.array(zip(model['pts'], colors), vertices_type)
+            colors = np.tile(list(surf_color) + [1.0], [model['pts'].shape[0], 1])
+        vertices_type = [('a_position', np.float32, 3),
+                         #('a_normal', np.float32, 3),
+                         ('a_color', np.float32, colors.shape[1])]
+        vertices = np.array(zip(model['pts'], colors), vertices_type)
+
+        # Model matrix
+        mat_model = np.eye(4, dtype=np.float32) # From object space to world space
+
+        # View matrix (transforming also the coordinate system from OpenCV to
+        # OpenGL camera space)
+        mat_view = np.eye(4, dtype=np.float32) # From world space to eye space
+        mat_view[:3, :3], mat_view[:3, 3] = R, t.squeeze()
+        yz_flip = np.eye(4, dtype=np.float32)
+        yz_flip[1, 1], yz_flip[2, 2] = -1, -1
+        mat_view = yz_flip.dot(mat_view) # OpenCV to OpenGL camera system
+        mat_view = mat_view.T # OpenGL expects column-wise matrix format
+
+        # Projection matrix
+        mat_proj = _compute_calib_proj(K, 0, 0, im_size[0], im_size[1], clip_near, clip_far)
+
+        # Create buffers
+        vertex_buffer = vertices.view(gloo.VertexBuffer)
+        index_buffer = model['faces'].flatten().astype(np.uint32).view(gloo.IndexBuffer)
+
+        # append buffers
+        vertex_buffers.append(vertex_buffer)
+        index_buffers.append(index_buffer)
+        mat_models.append(mat_model)
+        mat_views.append(mat_view)
+        mat_projs.append(mat_proj)
 
     # Rendering
     #---------------------------------------------------------------------------
-    render_rgb = mode in ['rgb', 'rgb+depth']
-    render_depth = mode in ['depth', 'rgb+depth']
-
-    # Model matrix
-    mat_model = np.eye(4, dtype=np.float32) # From object space to world space
-
-    # View matrix (transforming also the coordinate system from OpenCV to
-    # OpenGL camera space)
-    mat_view = np.eye(4, dtype=np.float32) # From world space to eye space
-    mat_view[:3, :3], mat_view[:3, 3] = R, t.squeeze()
-    yz_flip = np.eye(4, dtype=np.float32)
-    yz_flip[1, 1], yz_flip[2, 2] = -1, -1
-    mat_view = yz_flip.dot(mat_view) # OpenCV to OpenGL camera system
-    mat_view = mat_view.T # OpenGL expects column-wise matrix format
-
-    # Projection matrix
-    mat_proj = _compute_calib_proj(K, 0, 0, im_size[0], im_size[1], clip_near, clip_far)
-
-    # Create buffers
-    vertex_buffer = vertices.view(gloo.VertexBuffer)
-    index_buffer = model['faces'].flatten().astype(np.uint32).view(gloo.IndexBuffer)
+    render_rgb = mode in ['rgb', 'rgb+depth', 'rgb+label', 'rgb+depth+label']
+    render_depth = mode in ['depth', 'rgb+depth', 'rgb+label', 'rgb+depth+label']
+    render_label = mode in ['label', 'rgb+label', 'rgb+depth', 'rgb+depth+label']
 
     window = app.Window(visible=False)
 
-    global rgb, depth
+    global rgb, depth, label_map
     rgb = None
     depth = None
+    label_map = None
 
     @window.event
     def on_draw(dt):
@@ -291,13 +412,18 @@ def render(model, im_size, K, R, t, clip_near=100, clip_far=2000,
         if render_rgb:
             # Render color image
             global rgb
-            rgb = draw_color(shape, vertex_buffer, index_buffer, mat_model,
-                             mat_view, mat_proj, ambient_weight, bg_color)
+            rgb = draw_color(shape, vertex_buffers, index_buffers, mat_models,
+                             mat_views, mat_projs, ambient_weight, bg_color)
         if render_depth:
             # Render depth image
             global depth
-            depth = draw_depth(shape, vertex_buffer, index_buffer, mat_model,
-                               mat_view, mat_proj)
+            depth = draw_depth(shape, vertex_buffers, index_buffers, mat_models,
+                               mat_views, mat_projs)
+        if render_label:
+            # Render label image
+            global label_map
+            label_map = draw_label(shape, vertex_buffers, index_buffers, mat_models,
+                                   mat_views, mat_projs, labels)
 
     app.run(framecount=0) # The on_draw function is called framecount+1 times
     window.close()
@@ -308,8 +434,16 @@ def render(model, im_size, K, R, t, clip_near=100, clip_far=2000,
         return rgb
     elif mode == 'depth':
         return depth
+    elif mode == 'label':
+        return label_map
     elif mode == 'rgb+depth':
         return rgb, depth
+    elif mode == 'rgb+label':
+        return rgb, label_map
+    elif mode == 'depth+label':
+        return depth, label_map
+    elif mode == 'rgb+depth+label':
+        return rgb, depth, label_map
     else:
         print 'Error: Unknown rendering mode.'
         exit(-1)
