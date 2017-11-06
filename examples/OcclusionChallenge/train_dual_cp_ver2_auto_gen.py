@@ -60,11 +60,9 @@ def _make_chainermodel_npz(path_npz, path_caffemodel, model, num_class):
 
 def main():
     parser = argparse.ArgumentParser(description='Fully Convolutional Dual Center Pose Proposal Network for Pose Estimation')
-    parser.add_argument('--backend', default='glfw',
-                        help='Opengl backend')
     parser.add_argument('--batchsize', type=int, default=1,
                         help='Number of images in each mini-batch')
-    parser.add_argument('--epoch', '-e', type=int, default=200,
+    parser.add_argument('--epoch', '-e', type=int, default=100,
                         help='Number of sweeps over the dataset to train')
     parser.add_argument('--gpu', '-g', type=int, default=-1,
                         help='GPU ID (negative value indicates CPU)')
