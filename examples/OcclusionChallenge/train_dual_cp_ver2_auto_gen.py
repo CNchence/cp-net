@@ -127,7 +127,9 @@ def main():
                                          gamma_augmentation=True,
                                          avaraging=True,
                                          salt_pepper_noise=True,
-                                         contrast=True)
+                                         contrast=True,
+                                         random_iteration=True,
+                                         metric_filter=output_scale + eps)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
 
