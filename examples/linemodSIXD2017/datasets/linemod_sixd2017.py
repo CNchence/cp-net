@@ -176,7 +176,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                 mask = cv2.imread(self.mask_fpath_mask.format(scene_id, im_id, obj_id), 0)
         return mask
 
-    def load_bg_data(self, idx):
+    def _load_bg_data(self, idx):
         bg = cv2.imread(self.bg_fpaths[idx])
         # random crop
         height, width, ch = bg.shape
@@ -225,6 +225,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             obj_order = np.where(self.objs==target_obj)[0][0]
             im_id = np.random.choice(self.idx_dict[1][self.idx_dict[0] == target_obj], 1)[0]
             rgb, depth = self._load_images(target_obj, im_id)
+            depth = preprocess_utils.depth_inpainting(depth)
             pos, rot = self._load_pose(target_obj, im_id)
             mask = self._load_mask(target_obj, im_id)
             points = self._get_pointcloud(depth, K, fill_nan=False)
@@ -237,13 +238,20 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             y = np.random.randint(edge_offset, self.img_height - edge_offset) - self.img_height / 2
             z = min_z + np.random.rand() * (max_z - min_z)
             depth = depth * (z / pos[2])
-            M = np.float32([[pos[2] / z,          0, - g_x + x],
-                            [         0, pos[2] / z, - g_y + y]])
-            rgb = cv2.warpAffine(rgb, M, (self.img_width, self.img_height))
-            depth = cv2.warpAffine(depth, M, (self.img_width, self.img_height))
-            mask = cv2.warpAffine(mask, M, (self.img_width, self.img_height))
-            cp = cv2.warpAffine(cp, M, (self.img_width, self.img_height))
-            ocp= cv2.warpAffine(ocp, M, (self.img_width, self.img_height))
+            M_trans = np.float32([[1, 0, x + self.img_width / 2 - g_x],
+                                  [0, 1, y + self.img_height / 2 - g_y]])
+            rgb = cv2.warpAffine(rgb, M_trans, (self.img_width, self.img_height))
+            depth = cv2.warpAffine(depth, M_trans, (self.img_width, self.img_height))
+            mask = cv2.warpAffine(mask, M_trans, (self.img_width, self.img_height))
+            cp = cv2.warpAffine(cp, M_trans, (self.img_width, self.img_height))
+            ocp= cv2.warpAffine(ocp, M_trans, (self.img_width, self.img_height))
+            M_scale = np.float32([[pos[2] / z, 0,  0],
+                                  [0, pos[2] / z,  0]])
+            rgb = cv2.warpAffine(rgb, M_scale, (self.img_width, self.img_height))
+            depth = cv2.warpAffine(depth, M_scale, (self.img_width, self.img_height))
+            mask = cv2.warpAffine(mask, M_scale, (self.img_width, self.img_height))
+            cp = cv2.warpAffine(cp, M_scale, (self.img_width, self.img_height))
+            ocp= cv2.warpAffine(ocp, M_scale, (self.img_width, self.img_height))
             # resize
             depth = cv2.resize(depth, (self.out_width, self.out_height))
             cp = cv2.resize(cp, (self.out_width, self.out_height))
@@ -260,7 +268,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             img_cp[obj_order] = (cp * visib_mask[:,:, np.newaxis]).transpose(2,0,1)
             img_ocp[obj_order] = (ocp * visib_mask[:,:, np.newaxis]).transpose(2,0,1)
             obj_mask[obj_order] = visib_mask
-            label[visib_mask] = obj_order
+            label[visib_mask] = target_obj
             # pose
             trans_x = (x - g_x) * z / K[0, 0]
             trans_y = (y - g_y) * z / K[1, 1]
@@ -268,7 +276,8 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             positions[obj_order] = trans_pos
             rotations[obj_order] = rot
 
-
+        img_bg = self._load_bg_data(i)
+        img_rgb[img_rgb == [0, 0, 0]] = img_bg[img_rgb == [0, 0, 0]]
         imagenet_mean = np.array(
             [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
         img_rgb = img_rgb - imagenet_mean
@@ -406,8 +415,8 @@ if __name__== '__main__':
     root = '../../..'
     train_path = os.path.join(os.getcwd(), root, 'train_data/linemodSIXD2017')
     bg_path = os.path.join(os.getcwd(), root, 'train_data/VOCdevkit/VOC2012/JPEGImages')
-    # obj_list = np.arange(15) + 1
-    obj_list = np.arange(2) + 4
+    obj_list = np.arange(15) + 1
+    # obj_list = np.arange(2) + 4
 
     # extended_dataset = LinemodSIXDExtendedDataset(train_path, obj_list,
     #                                                 gaussian_noise=False,
@@ -423,7 +432,7 @@ if __name__== '__main__':
                                                          salt_pepper_noise=False,
                                                          contrast=False)
 
-    colors= ('grey', 'red', 'blue', 'yellow', 'magenta', 'green',  'indigo', 'darkorange', 'cyan', 'pink',
+    colors= ('grey', 'red', 'blue', 'yellow', 'magenta', 'green', 'indigo', 'darkorange', 'cyan', 'pink',
              'yellowgreen', 'blueviolet', 'brown', 'darkmagenta', 'aqua', 'crimson')
     fig, axes = plt.subplots(nrows=2, ncols=4, figsize=(16, 10))
     for im_id in range(100):
@@ -437,7 +446,7 @@ if __name__== '__main__':
         rgb_ac = rgb_ac.astype(np.uint8)
         # label_img = np.zeros((label.shape[0], label.shape[1], 3))
         label_img_ac = np.zeros((label_ac.shape[0], label_ac.shape[1], 3))
-        for lbl_id in range(15):
+        for lbl_id in range(16):
             if lbl_id > 0:
                 color = color_dict[colors[lbl_id]]
                 # label_img[(label == lbl_id), :] = color
