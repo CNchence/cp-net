@@ -84,13 +84,20 @@ def main():
                         help='train resnet')
     parser.add_argument('--no-accuracy', dest='compute_acc', action='store_false')
     parser.set_defaults(compute_acc=True)
+    parser.add_argument('--no-pose-accuracy', dest='compute_pose_acc', action='store_false')
+    parser.set_defaults(compute_pose_acc=True)
 
     args = parser.parse_args()
+
+
+    compute_class_accuracy = args.compute_acc
+    compute_pose_accuracy = args.compute_pose_acc and args.compute_acc
 
     print('GPU: {}'.format(args.gpu))
     print('# Minibatch-size: {}'.format(args.batchsize))
     print('# epoch: {}'.format(args.epoch))
-    print('# compute accuracy: {}'.format(args.compute_acc))
+    print('# compute class accuracy: {}'.format(compute_class_accuracy))
+    print('# compute pose accuracy: {}'.format(compute_pose_accuracy))
     print('')
 
     n_class = 9
@@ -108,7 +115,8 @@ def main():
         basepath=train_path,
         im_size=(512, 384),
         distance_sanity=distance_sanity,
-        compute_accuracy=args.compute_acc,
+        compute_class_accuracy=compute_class_accuracy,
+        compute_pose_accuracy=compute_pose_accuracy,
         output_scale=output_scale)
 
     if args.gpu >= 0:
