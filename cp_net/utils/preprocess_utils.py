@@ -4,14 +4,16 @@ import numpy as np
 import cv2
 
 
-def add_noise(src, sigma=15):
+def add_noise(src, sigma=5):
     src_tmp = src.copy()
     row,col,ch = src.shape
     mean = 0.0
     gauss = np.random.normal(mean, sigma, (row,col,ch))
     gauss = gauss.reshape(row,col,ch)
     gauss_img = src + gauss
-    return gauss_img
+    gauss_img[gauss_img > 255] = 255
+    gauss_img[gauss_img < 0] = 0
+    return gauss_img.astype(np.uint8)
 
 def avaraging(src, ksize=5):
     average_square = (ksize, ksize)
