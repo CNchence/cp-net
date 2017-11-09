@@ -38,7 +38,7 @@ def main():
     distance_sanity = 0.05
     min_distance= 0.005
     output_scale = 0.12
-    eps = 0.2
+    eps = 0.4
     im_size=(640, 480)
 
     ## load network model
