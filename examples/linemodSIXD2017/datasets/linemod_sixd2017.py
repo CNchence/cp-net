@@ -249,17 +249,17 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             y = np.random.randint(edge_offset, self.img_height - edge_offset) - self.img_height / 2
             z = min_z + np.random.rand() * (max_z - min_z)
             depth = depth * (z / pos[2])
-            M1 = np.float32([[pos[2] / z, 0, self.img_width / 2 - g_x],
-                             [0, pos[2] / z, self.img_height / 2 - g_y]])
+            M1 = np.float32([[1, 0, self.img_width / 2 - g_x],
+                             [0, 1, self.img_height / 2 - g_y]])
             rgb = cv2.warpAffine(rgb, M1, (self.img_width, self.img_height))
             depth = cv2.warpAffine(depth, M1, (self.img_width, self.img_height))
             mask = cv2.warpAffine(mask, M1, (self.img_width, self.img_height))
             cp = cv2.warpAffine(cp, M1, (self.img_width, self.img_height))
             ocp= cv2.warpAffine(ocp, M1, (self.img_width, self.img_height))
-            mu = cv2.moments(mask, False)
-            g_x, g_y= int(mu["m10"]/mu["m00"]) , int(mu["m01"]/mu["m00"])
-            M2 = np.float32([[1, 0, x + self.img_width / 2 - g_x],
-                             [0, 1, y + self.img_height / 2 - g_y]])
+            if np.sum(mask) == 0:
+                continue
+            M2 = np.float32([[pos[2] / z, 0, x + self.img_width / 2 * (1 - pos[2] / z)],
+                             [0, pos[2] /z, y + self.img_width / 2 * (1 - pos[2] / z)]])
             rgb = cv2.warpAffine(rgb, M2, (self.img_width, self.img_height))
             depth = cv2.warpAffine(depth, M2, (self.img_width, self.img_height))
             mask = cv2.warpAffine(mask, M2, (self.img_width, self.img_height))
@@ -270,6 +270,8 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             cp = cv2.resize(cp, (self.out_width, self.out_height))
             ocp = cv2.resize(ocp, (self.out_width, self.out_height))
             mask = cv2.resize(mask, (self.out_width, self.out_height))
+            if np.sum(mask) == 0:
+                continue
             # visib mask
             mask = mask.astype(np.bool)
             visib_mask = self.estimate_visib_region(depth, mask, img_depth)
@@ -311,11 +313,9 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         img_ocp[np.abs(img_ocp) > self.metric_filter] = 0
 
         ## ignore nan
-        label[np.isnan(pc[0]) * (label == 0)] = -1
-
+        # label[np.isnan(pc[0]) * (label == 0)] = -1
 
         return img_rgb, label.astype(np.int32), img_depth, img_cp, img_ocp, positions, rotations, pc, obj_mask.astype(np.int32), nonnan_mask, K
-
 
 
 
