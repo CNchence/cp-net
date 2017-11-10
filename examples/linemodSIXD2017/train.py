@@ -83,6 +83,8 @@ def main():
                         help='Frequency of taking a snapshot')
     parser.add_argument('--train_resnet', type=bool, default=False,
                         help='train resnet')
+    parser.add_argument('--train-resnet', dest='train_resnet', action='store_true')
+    parser.set_defaults(train_resnet=False)
     parser.add_argument('--no-accuracy', dest='compute_acc', action='store_false')
     parser.set_defaults(compute_acc=True)
     parser.add_argument('--no-pose-accuracy', dest='compute_pose_acc', action='store_false')
@@ -111,6 +113,7 @@ def main():
     distance_sanity = 0.05
     output_scale = 0.14
     eps = 0.05
+    interval = 15
 
     chainer.using_config('cudnn_deterministic', True)
     model = DualCPNetClassifier(
@@ -138,12 +141,12 @@ def main():
                                           salt_pepper_noise=True,
                                           contrast=False,
                                           mode='train',
-                                          interval=10,
+                                          interval=interval,
                                           metric_filter=output_scale + eps)
     # load test data
     test = LinemodSIXDExtendedDataset(train_path, objs,
                                       mode='test',
-                                      interval=10,
+                                      interval=interval,
                                       metric_filter=output_scale + eps)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
@@ -173,9 +176,9 @@ def main():
 
     trainer.extend(extensions.PrintReport(
         ['epoch',  'main/l_cls',  'main/l_cp', 'main/l_ocp',
-         'main/cls_acc', 'main/cp_acc', 'main/ocp_acc', 'main/rot_acc', 'main/5cm5deg',
+         'main/cls_acc', 'main/ocp_acc', 'main/rot_acc', 'main/5cm5deg',
          'val/main/l_cls',  'val/main/l_cp', 'val/main/l_ocp',
-         'val/main/cls_acc', 'val/main/cp_acc', 'val/main/ocp_acc', 'val/main/rot_acc', 'val/main/5cm5deg',
+         'val/main/cls_acc', 'val/main/ocp_acc', 'val/main/rot_acc', 'val/main/5cm5deg',
          'elapsed_time']))
 
     # Print a progress bar to stdout
