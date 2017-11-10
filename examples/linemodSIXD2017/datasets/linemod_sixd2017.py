@@ -23,6 +23,8 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
                  avaraging=False,
                  salt_pepper_noise=False,
                  contrast=False,
+                 mode='test',
+                 interval=1,
                  metric_filter=1.0):
 
         if objs_indices is None:
@@ -67,7 +69,12 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
                                        np.vstack((np.ones(n_frames) * scene_idx, np.arange(n_frames)))))
             self.idx_dict = self.idx_dict.astype(np.int32)
 
-        ## self.idx_dict = self.idx_dict[0::n]?
+        if interval > 1:
+            if mode == 'train':
+                self.idx_dict = self.idx_dict[:, 0::interval]
+            elif mode == 'test':
+                self.idx_dict = np.delete(self.idx_dict, self.idx_dict[:, 0::interval], axis=1)
+
         self.metric_filter = metric_filter
 
     def __len__(self):
@@ -81,7 +88,7 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
         xyz_im = np.dstack((Xs, Ys, depth_im))
         if fill_nan:
             xyz_im[xyz_im == 0] = np.nan
-        return xyz_im
+        return xyz_im.astype(np.float32)
 
     def _load_pose(self, scene_id, im_id, obj_id):
         scene_order = np.where(self.scenes==scene_id)[0][0]
@@ -134,6 +141,8 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                  contrast=False,
                  bg_flip=True,
                  random_iteration=False,
+                 mode='test',
+                 interval=1,
                  metric_filter=1.0):
 
         super(LinemodSIXDAutoContextDataset, self).__init__(path, objs_indices,
@@ -143,6 +152,8 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                                                             avaraging=avaraging,
                                                             salt_pepper_noise=salt_pepper_noise,
                                                             contrast=contrast,
+                                                            mode=mode,
+                                                            interval=interval,
                                                             metric_filter=metric_filter)
 
         self.bg_fpaths = glob.glob(os.path.join(background_path, '*.jpg'))
@@ -202,8 +213,8 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         scene_id, im_id = self.idx_dict[:, i]
         K = self._load_k(scene_id, im_id)
 
-        min_obj_num = min(10, len(self.objs) - 1) # tmp
-        obj_num = np.random.randint(min_obj_num, len(self.objs))
+        min_obj_num = min(10, len(self.objs)) # tmp
+        obj_num = np.random.randint(min_obj_num, len(self.objs) + 1)
         obj_ind = np.random.choice(self.objs, obj_num, replace=False)
 
         img_rgb = np.zeros((self.img_height, self.img_width, 3))
@@ -212,7 +223,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         img_cp = np.zeros((self.n_class, 3, self.out_height, self.out_width))
         img_ocp = np.zeros_like(img_cp)
         obj_mask = np.zeros((self.n_class, self.out_height, self.out_width))
-        nonnan_mask = np.ones((self.out_height, self.out_width))
+        nonnan_mask = np.ones((self.out_height, self.out_width)).astype(np.float32)
         positions = np.zeros((self.n_class, 3))
         rotations = np.zeros((self.n_class, 3, 3))
 
@@ -238,20 +249,22 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             y = np.random.randint(edge_offset, self.img_height - edge_offset) - self.img_height / 2
             z = min_z + np.random.rand() * (max_z - min_z)
             depth = depth * (z / pos[2])
-            M_trans = np.float32([[1, 0, x + self.img_width / 2 - g_x],
-                                  [0, 1, y + self.img_height / 2 - g_y]])
-            rgb = cv2.warpAffine(rgb, M_trans, (self.img_width, self.img_height))
-            depth = cv2.warpAffine(depth, M_trans, (self.img_width, self.img_height))
-            mask = cv2.warpAffine(mask, M_trans, (self.img_width, self.img_height))
-            cp = cv2.warpAffine(cp, M_trans, (self.img_width, self.img_height))
-            ocp= cv2.warpAffine(ocp, M_trans, (self.img_width, self.img_height))
-            M_scale = np.float32([[pos[2] / z, 0,  0],
-                                  [0, pos[2] / z,  0]])
-            rgb = cv2.warpAffine(rgb, M_scale, (self.img_width, self.img_height))
-            depth = cv2.warpAffine(depth, M_scale, (self.img_width, self.img_height))
-            mask = cv2.warpAffine(mask, M_scale, (self.img_width, self.img_height))
-            cp = cv2.warpAffine(cp, M_scale, (self.img_width, self.img_height))
-            ocp= cv2.warpAffine(ocp, M_scale, (self.img_width, self.img_height))
+            M1 = np.float32([[pos[2] / z, 0, self.img_width / 2 - g_x],
+                             [0, pos[2] / z, self.img_height / 2 - g_y]])
+            rgb = cv2.warpAffine(rgb, M1, (self.img_width, self.img_height))
+            depth = cv2.warpAffine(depth, M1, (self.img_width, self.img_height))
+            mask = cv2.warpAffine(mask, M1, (self.img_width, self.img_height))
+            cp = cv2.warpAffine(cp, M1, (self.img_width, self.img_height))
+            ocp= cv2.warpAffine(ocp, M1, (self.img_width, self.img_height))
+            mu = cv2.moments(mask, False)
+            g_x, g_y= int(mu["m10"]/mu["m00"]) , int(mu["m01"]/mu["m00"])
+            M2 = np.float32([[1, 0, x + self.img_width / 2 - g_x],
+                             [0, 1, y + self.img_height / 2 - g_y]])
+            rgb = cv2.warpAffine(rgb, M2, (self.img_width, self.img_height))
+            depth = cv2.warpAffine(depth, M2, (self.img_width, self.img_height))
+            mask = cv2.warpAffine(mask, M2, (self.img_width, self.img_height))
+            cp = cv2.warpAffine(cp, M2, (self.img_width, self.img_height))
+            ocp= cv2.warpAffine(ocp, M2, (self.img_width, self.img_height))
             # resize
             depth = cv2.resize(depth, (self.out_width, self.out_height))
             cp = cv2.resize(cp, (self.out_width, self.out_height))
@@ -276,7 +289,8 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             positions[obj_order] = trans_pos
             rotations[obj_order] = rot
 
-        img_bg = self._load_bg_data(i)
+        bg_id = np.random.randint(0, len(self.bg_fpaths))
+        img_bg = self._load_bg_data(bg_id)
         img_rgb[img_rgb == [0, 0, 0]] = img_bg[img_rgb == [0, 0, 0]]
         imagenet_mean = np.array(
             [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
@@ -285,7 +299,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         img_rgb = img_rgb.transpose(2,0,1).astype(np.float32)
 
         pc = self._get_pointcloud(img_depth, K, fill_nan=True).transpose(2,0,1)
-        obj_mask = obj_mask * nonnan_mask
+        obj_mask = (obj_mask * nonnan_mask).astype(np.float32)
 
         img_cp = img_cp.astype(np.float32)
         img_ocp = img_ocp.astype(np.float32)
@@ -312,6 +326,8 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
                  avaraging=False,
                  salt_pepper_noise=False,
                  contrast=False,
+                 mode='test',
+                 interval=1,
                  metric_filter=1.0):
         scene_indices = np.array([2]) ## benchvise scene id
         super(LinemodSIXDExtendedDataset, self).__init__(path, scene_indices, objs_indices=objs_indices,
@@ -321,6 +337,8 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
                                                          avaraging=avaraging,
                                                          salt_pepper_noise=salt_pepper_noise,
                                                          contrast=contrast,
+                                                         mode=mode,
+                                                         interval=interval,
                                                          metric_filter=metric_filter)
 
     def _load_poses(self, scene_id, im_id):
