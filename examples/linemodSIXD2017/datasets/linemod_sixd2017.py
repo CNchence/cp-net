@@ -140,6 +140,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                  salt_pepper_noise=False,
                  contrast=False,
                  bg_flip=True,
+                 channel_swap = True,
                  random_iteration=False,
                  mode='test',
                  interval=1,
@@ -159,6 +160,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         self.bg_fpaths = glob.glob(os.path.join(background_path, '*.jpg'))
         self.bg_flip = bg_flip
         self.random_iteration = random_iteration
+        self.channel_swap = channel_swap
 
 
     def _load_pose(self, scene_id, im_id):
@@ -198,8 +200,11 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
 
         bg = bg[crop_h:(crop_h + resize_height), crop_w:(crop_w + resize_width)]
         bg = cv2.resize(bg, (self.img_width, self.img_height))
+        bg = self.rgb_augmentation(bg)
         if self.bg_flip and np.random.randint(0,2):
             bg = bg[:,::-1, :]
+        if self.channel_swap:
+            bg = bg[:, :, np.random.choice(np.arange(3), 3, replace=False)]
         return bg
 
     def estimate_visib_region(self, depth, mask, depth_ref):
@@ -290,6 +295,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             trans_pos = np.array([trans_x, trans_y, z])
             positions[obj_order] = trans_pos
             rotations[obj_order] = rot
+        img_rgb = self.rgb_augmentation(img_rgb)
 
         bg_id = np.random.randint(0, len(self.bg_fpaths))
         img_bg = self._load_bg_data(bg_id)
