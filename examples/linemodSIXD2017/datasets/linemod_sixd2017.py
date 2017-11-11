@@ -60,13 +60,20 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
         self.idx_dict = np.array([[], []])
         for scene_idx in scene_indices:
             print "loading gt poses : scene_{0:0>2}".format(scene_idx)
-            scene_poses = yaml.load(open(gt_poses_mask.format(scene_idx)))
-            self.gt_poses.append(scene_poses)
+            gts = yaml.load(open(gt_poses_mask.format(scene_idx)))
+            for im_id, gts_im in gts.items():
+                for gt in gts_im:
+                    if 'cam_R_m2c' in gt.keys():
+                        gt['cam_R_m2c'] = np.array(gt['cam_R_m2c']).reshape((3, 3))
+                    if 'cam_t_m2c' in gt.keys():
+                        gt['cam_t_m2c'] = np.array(gt['cam_t_m2c']).reshape(3)
+            self.gt_poses.append(gts)
             self.infos.append(
                 yaml.load(open(info_mask.format(scene_idx))))
-            n_frames = len(scene_poses)
+            n_frames = len(gts)
             self.idx_dict = np.hstack((self.idx_dict,
-                                       np.vstack((np.ones(n_frames) * scene_idx, np.arange(n_frames)))))
+                                       np.vstack((np.ones(n_frames) * scene_idx,
+                                                  np.arange(n_frames)))))
             self.idx_dict = self.idx_dict.astype(np.int32)
 
         if interval > 1:
@@ -170,8 +177,8 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             obj_id = pose['obj_id']
             if obj_id == scene_id:
                 idx = np.where(self.objs==obj_id)[0][0]
-                p = np.asarray(pose['cam_t_m2c'])
-                r = np.asarray(pose['cam_R_m2c']).reshape(3, 3)
+                p = pose['cam_t_m2c']
+                r = pose['cam_R_m2c']
                 pos = p / 1000.0
                 rot = r
         return pos, rot
@@ -202,11 +209,9 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             bg = bg[:,::-1, :]
         return bg
 
-    def estimate_visib_region(self, depth, mask, depth_ref):
-        masked_depth = depth * mask
-        masked_depth_ref = depth_ref * mask
-        visib_mask = np.logical_or((masked_depth < masked_depth_ref),
-                                   np.logical_and((masked_depth_ref == 0), (masked_depth != 0)))
+    def estimate_visib_region(self, depth, depth_ref):
+        visib_mask = np.logical_or((depth < depth_ref),
+                                   np.logical_and((depth_ref == 0), (depth != 0)))
         return visib_mask
 
     def get_example(self, i):
@@ -229,65 +234,52 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
 
         min_z = 0.5
         max_z = 1.5
-        edge_offset = 3
+        edge_offset = 5
 
         for i in six.moves.range(min_obj_num):
             target_obj = obj_ind[i]
             obj_order = np.where(self.objs==target_obj)[0][0]
             im_id = np.random.choice(self.idx_dict[1][self.idx_dict[0] == target_obj], 1)[0]
             rgb, depth = self._load_images(target_obj, im_id)
-            depth = preprocess_utils.depth_inpainting(depth)
             pos, rot = self._load_pose(target_obj, im_id)
             mask = self._load_mask(target_obj, im_id)
             points = self._get_pointcloud(depth, K, fill_nan=False)
             cp = pos[np.newaxis, np.newaxis, :] - points
-            ocp = np.dot(rot.T, - cp.transpose(2,0,1).reshape(3, -1)).reshape(3, cp.shape[0], cp.shape[1]).transpose(1,2,0)
             # translate and scaling
-            mu = cv2.moments(mask, False)
-            g_x, g_y= int(mu["m10"]/mu["m00"]) , int(mu["m01"]/mu["m00"])
             x = np.random.randint(edge_offset, self.img_width - edge_offset) - self.img_width / 2
-            y = np.random.randint(edge_offset, self.img_height - edge_offset) - self.img_height / 2
+            y = np.random.randint(edge_offset, self.img_height - edge_offset)- self.img_width / 2
             z = min_z + np.random.rand() * (max_z - min_z)
-            depth = depth * (z / pos[2])
-            M1 = np.float32([[1, 0, self.img_width / 2 - g_x],
-                             [0, 1, self.img_height / 2 - g_y]])
-            rgb = cv2.warpAffine(rgb, M1, (self.img_width, self.img_height))
-            depth = cv2.warpAffine(depth, M1, (self.img_width, self.img_height))
-            mask = cv2.warpAffine(mask, M1, (self.img_width, self.img_height))
-            cp = cv2.warpAffine(cp, M1, (self.img_width, self.img_height))
-            ocp= cv2.warpAffine(ocp, M1, (self.img_width, self.img_height))
-            if np.sum(mask) == 0:
-                continue
-            M2 = np.float32([[pos[2] / z, 0, x + self.img_width / 2 * (1 - pos[2] / z)],
-                             [0, pos[2] /z, y + self.img_width / 2 * (1 - pos[2] / z)]])
-            rgb = cv2.warpAffine(rgb, M2, (self.img_width, self.img_height))
-            depth = cv2.warpAffine(depth, M2, (self.img_width, self.img_height))
-            mask = cv2.warpAffine(mask, M2, (self.img_width, self.img_height))
-            cp = cv2.warpAffine(cp, M2, (self.img_width, self.img_height))
-            ocp= cv2.warpAffine(ocp, M2, (self.img_width, self.img_height))
-            # resize
-            depth = cv2.resize(depth, (self.out_width, self.out_height))
-            cp = cv2.resize(cp, (self.out_width, self.out_height))
-            ocp = cv2.resize(ocp, (self.out_width, self.out_height))
-            mask = cv2.resize(mask, (self.out_width, self.out_height))
+            depth = depth + (z - pos[2])
+            # Affine transform(scaling, translate, resize)
+            g_x = K[0,2] + pos[0] * K[0,0] / pos[2]
+            g_y = K[1,2] + pos[1] * K[1,1] / pos[2]
+            M0 = np.float32([[pos[2] / z, 0, x + K[0, 2] - g_x * pos[2]/z],
+                             [0, pos[2] / z, y + K[1, 2] - g_y * pos[2]/z]])
+            M = M0.copy() / 2.0
+            rgb = cv2.warpAffine(rgb, M0, (self.img_width, self.img_height))
+            depth = cv2.warpAffine(depth, M, (self.out_width, self.out_height))
+            mask = cv2.warpAffine(mask, M, (self.out_width, self.out_height))
+            cp = cv2.warpAffine(cp, M, (self.out_width, self.out_height))
             if np.sum(mask) == 0:
                 continue
             # visib mask
-            mask = mask.astype(np.bool)
-            visib_mask = self.estimate_visib_region(depth, mask, img_depth)
-            visib_mask_resize = cv2.resize(visib_mask.astype(np.uint8), (self.img_width, self.img_height))
+            visib_mask = self.estimate_visib_region(depth, img_depth)
+            visib_mask = visib_mask * mask
+            visib_mask_resize = cv2.resize(visib_mask, (self.img_width, self.img_height))
             visib_mask_resize = visib_mask_resize.astype(np.bool)
+            visib_mask = visib_mask.astype(np.bool)
+            trans_pos = np.array([x * z / K[0, 0], y * z / K[1, 1], z])
+
             # masking
             img_rgb[visib_mask_resize, :] = rgb[visib_mask_resize, :]
             img_depth[visib_mask] = depth[visib_mask]
-            img_cp[obj_order] = (cp * visib_mask[:,:, np.newaxis]).transpose(2,0,1)
-            img_ocp[obj_order] = (ocp * visib_mask[:,:, np.newaxis]).transpose(2,0,1)
+            cp = (cp * visib_mask[:,:, np.newaxis]).transpose(2,0,1)
+            ocp = np.dot(rot.T, - cp.reshape(3, -1)).reshape(cp.shape)
+            img_cp[obj_order] = cp
+            img_ocp[obj_order] = ocp
             obj_mask[obj_order] = visib_mask
             label[visib_mask] = target_obj
             # pose
-            trans_x = (x - g_x) * z / K[0, 0]
-            trans_y = (y - g_y) * z / K[1, 1]
-            trans_pos = np.array([trans_x, trans_y, z])
             positions[obj_order] = trans_pos
             rotations[obj_order] = rot
 
@@ -350,8 +342,8 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
             obj_id = pose['obj_id']
             if obj_id in self.objs:
                 idx = np.where(self.objs==obj_id)[0][0]
-                p = np.asarray(pose['cam_t_m2c'])
-                r = np.asarray(pose['cam_R_m2c']).reshape(3, 3)
+                p = pose['cam_t_m2c']
+                r = pose['cam_R_m2c']
                 pos[idx] = p / 1000.0
                 rot[idx] = r
         return pos, rot
