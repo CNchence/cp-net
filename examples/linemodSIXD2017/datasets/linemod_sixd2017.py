@@ -234,13 +234,13 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         img_ocp = np.zeros_like(img_cp)
         obj_mask = np.zeros((self.n_class, self.out_height, self.out_width))
         nonnan_mask = np.ones((self.out_height, self.out_width)).astype(np.float32)
+        rgb_mask = np.zeros(((self.img_height, self.img_width)))
         positions = np.zeros((self.n_class, 3))
         rotations = np.zeros((self.n_class, 3, 3))
 
         min_z = 0.5
         max_z = 1.5
         edge_offset = 5
-
         for i in six.moves.range(min_obj_num):
             target_obj = obj_ind[i]
             obj_order = np.where(self.objs==target_obj)[0][0]
@@ -272,6 +272,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             visib_mask = visib_mask * mask
             visib_mask_resize = cv2.resize(visib_mask, (self.img_width, self.img_height))
             visib_mask_resize = visib_mask_resize.astype(np.bool)
+            rgb_mask = np.logical_or(rgb_mask, visib_mask_resize)
             visib_mask = visib_mask.astype(np.bool)
             trans_pos = np.array([x * z / K[0, 0], y * z / K[1, 1], z])
 
@@ -287,13 +288,11 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             # pose
             positions[obj_order] = trans_pos
             rotations[obj_order] = rot
-        mask = (img_rgb > 0)
-        img_rgb = self.rgb_augmentation(img_rgb)
-        img_rgb = img_rgb * mask
 
+        img_rgb = self.rgb_augmentation(img_rgb)
         bg_id = np.random.randint(0, len(self.bg_fpaths))
         img_bg = self._load_bg_data(bg_id)
-        img_rgb[img_rgb == [0, 0, 0]] = img_bg[img_rgb == [0, 0, 0]]
+        img_rgb = img_rgb * rgb_mask[:, :, np.newaxis] + img_bg *np.invert(rgb_mask[:, :, np.newaxis])
         imagenet_mean = np.array(
             [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
         img_rgb = img_rgb - imagenet_mean
