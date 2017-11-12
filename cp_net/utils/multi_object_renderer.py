@@ -3,6 +3,7 @@
 # contribution:
 # - support multi object rendering
 # - render with label
+# - light color param in color fragment shader
 
 # Original
 #
@@ -49,6 +50,7 @@ void main() {
 #-------------------------------------------------------------------------------
 _color_fragment_code = """
 uniform float u_light_ambient_w;
+uniform vec3 light_color;
 
 varying vec3 v_color;
 varying vec3 v_eye_pos;
@@ -61,7 +63,11 @@ void main() {
     float light_diffuse_w = max(dot(normalize(v_L), normalize(face_normal)), 0.0);
     float light_w = u_light_ambient_w + light_diffuse_w;
     if(light_w > 1.0) light_w = 1.0;
-    gl_FragColor = vec4(light_w * v_color, 1.0);
+    vec3 light_color_w = light_color;
+    if(light_color.x > 1.0) light_color_w.x = 1.0;
+    if(light_color.y > 1.0) light_color_w.y = 1.0;
+    if(light_color.z > 1.0) light_color_w.z = 1.0;
+    gl_FragColor = vec4(light_w * light_color_w * v_color, 1.0);
 }
 """
 
@@ -187,7 +193,7 @@ def _compute_calib_proj(K, x0, y0, w, h, nc, fc, window_coords='y_down'):
 
 #-------------------------------------------------------------------------------
 def draw_color(shape, vertex_buffers, index_buffers, mat_models, mat_views,
-               mat_projs, ambient_weight, bg_color):
+               mat_projs, ambient_weight, light_color, bg_color):
     assert(len(vertex_buffers) == len(index_buffers))
     assert(len(vertex_buffers) == len(mat_models))
     assert(len(vertex_buffers) == len(mat_views))
@@ -218,6 +224,7 @@ def draw_color(shape, vertex_buffers, index_buffers, mat_models, mat_views,
 
         program.bind(vertex_buffer)
         program['u_light_eye_pos'] = [0, 0, 0]
+        program['light_color'] = [light_color[0], light_color[1], light_color[2]]
         program['u_light_ambient_w'] = ambient_weight
         program['u_mv'] = _compute_model_view(mat_model, mat_view)
         program['u_mvp'] = _compute_model_view_proj(mat_model, mat_view, mat_proj)
@@ -332,6 +339,7 @@ def draw_label(shape, vertex_buffers, index_buffers, mat_models, mat_views, mat_
 #-------------------------------------------------------------------------------
 def render(model_list, im_size, K, R_list, t_list, clip_near=100, clip_far=2000,
            surf_color=None, bg_color=(0.0, 0.0, 0.0, 0.0), labels=None,
+           light_color=(1, 1 ,1),
            ambient_weight=0.1, mode='rgb+depth'):
 
     vertex_buffers = []
@@ -413,7 +421,7 @@ def render(model_list, im_size, K, R_list, t_list, clip_near=100, clip_far=2000,
             # Render color image
             global rgb
             rgb = draw_color(shape, vertex_buffers, index_buffers, mat_models,
-                             mat_views, mat_projs, ambient_weight, bg_color)
+                             mat_views, mat_projs, ambient_weight, light_color, bg_color)
         if render_depth:
             # Render depth image
             global depth
