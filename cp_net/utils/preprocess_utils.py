@@ -10,8 +10,6 @@ def add_noise(src, sigma=10):
     gauss = np.random.normal(mean, sigma, (row,col,ch))
     gauss = gauss.reshape(row,col,ch)
     gauss_img = src + gauss
-    gauss_img[gauss_img > 255] = 255
-    gauss_img[gauss_img < 0] = 0
     return gauss_img.astype(np.uint8)
 
 def avaraging(src, ksize=5):

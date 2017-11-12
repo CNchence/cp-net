@@ -157,7 +157,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                                                             img_height=img_height, img_width=img_width,
                                                             gaussian_noise=gaussian_noise,
                                                             gamma_augmentation=gamma_augmentation,
-                                                            avaraging=avaraging,
+                                                            avaraging=False,
                                                             salt_pepper_noise=salt_pepper_noise,
                                                             contrast=contrast,
                                                             mode=mode,
@@ -292,7 +292,10 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         img_rgb = self.rgb_augmentation(img_rgb)
         bg_id = np.random.randint(0, len(self.bg_fpaths))
         img_bg = self._load_bg_data(bg_id)
+        ## random light color
+        img_rgb = (img_rgb * (np.random.rand(3) * 0.4 + 0.8)[np.newaxis, np.newaxis, :])
         img_rgb = img_rgb * rgb_mask[:, :, np.newaxis] + img_bg *np.invert(rgb_mask[:, :, np.newaxis])
+        img_rgb = preprocess_utils.gaussian_blur(img_rgb)
         imagenet_mean = np.array(
             [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
         img_rgb = img_rgb - imagenet_mean
