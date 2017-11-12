@@ -287,7 +287,9 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             # pose
             positions[obj_order] = trans_pos
             rotations[obj_order] = rot
+        mask = (img_rgb > 0)
         img_rgb = self.rgb_augmentation(img_rgb)
+        img_rgb = img_rgb * mask
 
         bg_id = np.random.randint(0, len(self.bg_fpaths))
         img_bg = self._load_bg_data(bg_id)

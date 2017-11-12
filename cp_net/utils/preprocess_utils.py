@@ -4,8 +4,7 @@ import numpy as np
 import cv2
 
 
-def add_noise(src, sigma=5):
-    src_tmp = src.copy()
+def add_noise(src, sigma=10):
     row,col,ch = src.shape
     mean = 0.0
     gauss = np.random.normal(mean, sigma, (row,col,ch))
