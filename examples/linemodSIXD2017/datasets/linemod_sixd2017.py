@@ -151,6 +151,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                  random_iteration=False,
                  mode='test',
                  interval=1,
+                 iteration_per_epoch=1000,
                  metric_filter=1.0):
 
         super(LinemodSIXDAutoContextDataset, self).__init__(path, objs_indices,
@@ -168,7 +169,10 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         self.bg_flip = bg_flip
         self.random_iteration = random_iteration
         self.channel_swap = channel_swap
+        self.iteration_per_epoch = iteration_per_epoch
 
+    def __len__(self):
+        return self.iteration_per_epoch
 
     def _load_pose(self, scene_id, im_id):
         scene_order = np.where(self.scenes==scene_id)[0][0]
