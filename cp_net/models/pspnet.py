@@ -160,7 +160,7 @@ class DilatedFCN(chainer.Chain):
         h = F.max_pooling_2d(h, 3, 2, 1)  # 1/4
         h = self.res2(h)
         h = self.res3(h)  # 1/8
-        if chainer.config.train:
+        if chainer.config.aux_train:
             h1 = self.res4(h)
             h2 = self.res5(h1)
             return h1, h2
