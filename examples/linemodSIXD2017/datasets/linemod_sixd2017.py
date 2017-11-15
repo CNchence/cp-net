@@ -175,7 +175,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                                                             mode=mode,
                                                             interval=interval,
                                                             resize_rate = resize_rate,
-                                                            load_poses=False,
+                                                            load_poses=load_poses,
                                                             metric_filter=metric_filter)
 
         self.bg_fpaths = glob.glob(os.path.join(background_path, '*.jpg'))
@@ -603,73 +603,134 @@ if __name__== '__main__':
     train_path = os.path.join(os.getcwd(), root, 'train_data/linemodSIXD2017')
     bg_path = os.path.join(os.getcwd(), root, 'train_data/VOCdevkit/VOC2012/JPEGImages')
     obj_list = np.arange(15) + 1
-    # obj_list = np.arange(2) + 4
+    # obj_list = np.arange(2) + 6
 
-    # extended_dataset = LinemodSIXDExtendedDataset(train_path, obj_list,
-    #                                                 gaussian_noise=False,
-    #                                               gamma_augmentation=True,
-    #                                               avaraging=True,
-    #                                               salt_pepper_noise=False,
-    #                                               contrast=False)
+    visualize_extended_data = True
+    visualize_auto_context_data = True
+    visualize_rendering_data = True
 
-    auto_context_dataset = LinemodSIXDAutoContextDataset(train_path, obj_list, bg_path,
-                                                         gaussian_noise=False,
-                                                         gamma_augmentation=True,
-                                                         avaraging=True,
-                                                         salt_pepper_noise=False,
-                                                         contrast=False)
+    if visualize_extended_data:
+        extended_dataset = LinemodSIXDExtendedDataset(train_path, obj_list,
+                                                      gaussian_noise=False,
+                                                      gamma_augmentation=True,
+                                                      avaraging=True,
+                                                      salt_pepper_noise=False,
+                                                      resize_rate=1.0,
+                                                      contrast=False)
+
+    if visualize_auto_context_data:
+        auto_context_dataset = LinemodSIXDAutoContextDataset(train_path, obj_list, bg_path,
+                                                             gaussian_noise=False,
+                                                             gamma_augmentation=False,
+                                                             avaraging=True,
+                                                             salt_pepper_noise=False,
+                                                             resize_rate=1.0,
+                                                             contrast=False)
+    if visualize_rendering_data:
+        rendering_dataset = LinemodSIXDRenderingDataset(train_path, obj_list, bg_path,
+                                                        gaussian_noise=False,
+                                                        gamma_augmentation=True,
+                                                        avaraging=True,
+                                                        salt_pepper_noise=False,
+                                                        resize_rate=1.0,
+                                                        contrast=False)
 
     colors= ('grey', 'red', 'blue', 'yellow', 'magenta', 'green', 'indigo', 'darkorange', 'cyan', 'pink',
              'yellowgreen', 'blueviolet', 'brown', 'darkmagenta', 'aqua', 'crimson')
-    fig, axes = plt.subplots(nrows=2, ncols=4, figsize=(16, 10))
+    fig, axes = plt.subplots(nrows=3, ncols=4, figsize=(16, 10))
+
+    imsize = (640, 480)
+    imagenet_mean = np.array(
+        [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
+
     for im_id in range(100):
-        #rgb, label, depth, cp, ocp, pos, rot, _, obj_mask, _, _ = extended_dataset.get_exaample(im_id)
-        rgb_ac, label_ac, depth_ac, cp_ac, ocp_ac, pos, rot, _, obj_mask_ac, _, _ = auto_context_dataset.get_example(im_id)
-        imagenet_mean = np.array(
-            [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
-        # rgb = rgb.transpose(1,2,0)* 255 + imagenet_mean
-        # rgb = rgb.astype(np.uint8)
-        rgb_ac = rgb_ac.transpose(1,2,0)* 255 + imagenet_mean
-        rgb_ac = rgb_ac.astype(np.uint8)
-        # label_img = np.zeros((label.shape[0], label.shape[1], 3))
+        rgb = np.zeros((imsize[1], imsize[0], 3))
+        rgb_ac = np.zeros_like(rgb)
+        rgb_ren = np.zeros_like(rgb)
+        label = np.zeros((imsize[1], imsize[0]))
+        label_ac = np.zeros_like(label)
+        label_ren = np.zeros_like(label)
+
+        if visualize_extended_data:
+            rgb, label, depth, cp, ocp, pos, rot, _, obj_mask, _, _ = extended_dataset.get_example(im_id)
+            rgb = rgb.transpose(1,2,0)* 255 + imagenet_mean
+            rgb = rgb.astype(np.uint8)
+            rgb[rgb > 255] = 255
+            rgb[rgb < 0] = 0
+
+        if visualize_auto_context_data:
+            rgb_ac, label_ac, depth_ac, cp_ac, ocp_ac, pos, rot, _, obj_mask_ac, _, _ = auto_context_dataset.get_example(im_id)
+            rgb_ac = rgb_ac.transpose(1,2,0)* 255 + imagenet_mean
+            rgb_ac = rgb_ac.astype(np.uint8)
+            rgb_ac[rgb_ac > 255] = 255
+            rgb_ac[rgb_ac < 0] = 0
+
+        if visualize_rendering_data:
+            rgb_ren, label_ren, depth_ren, cp_ren, ocp_ren, pos_ren, rot_ren, _, obj_mask_ren, _, _ = rendering_dataset.get_example(im_id)
+            rgb_ren = rgb_ren.transpose(1,2,0)* 255 + imagenet_mean
+            rgb_ren = rgb_ren.astype(np.uint8)
+            rgb_ren[rgb_ren > 255] = 255
+            rgb_ren[rgb_ren < 0] = 0
+
+        label_img = np.zeros((label.shape[0], label.shape[1], 3))
         label_img_ac = np.zeros((label_ac.shape[0], label_ac.shape[1], 3))
+        label_img_ren = np.zeros((label_ren.shape[0], label_ren.shape[1], 3))
         for lbl_id in range(16):
             if lbl_id > 0:
                 color = color_dict[colors[lbl_id]]
-                # label_img[(label == lbl_id), :] = color
+                label_img[(label == lbl_id), :] = color
                 label_img_ac[(label_ac == lbl_id), :] = color
+                label_img_ren[(label_ren == lbl_id), :] = color
 
-        # rgb_resize = cv2.resize(rgb, (rgb.shape[1] / 2, rgb.shape[0] / 2))
-        # gray = img_as_float(rgb2gray(rgb_resize))
-        # gray = gray2rgb(gray) * image_alpha + (1 - image_alpha)
-        # cls_vis = label_img * alpha + gray * (1 - alpha)
-        # cls_vis = (cls_vis * 255).astype(np.uint8)
+        rgb_resize = cv2.resize(rgb, (rgb.shape[1], rgb.shape[0]))
+        gray = img_as_float(rgb2gray(rgb_resize))
+        gray = gray2rgb(gray) * image_alpha + (1 - image_alpha)
+        cls_vis = label_img * alpha + gray * (1 - alpha)
+        cls_vis = (cls_vis * 255).astype(np.uint8)
 
-        rgb_resize_ac = cv2.resize(rgb_ac, (rgb_ac.shape[1] / 2, rgb_ac.shape[0] / 2))
+        rgb_resize_ac = cv2.resize(rgb_ac, (rgb_ac.shape[1], rgb_ac.shape[0]))
         gray_ac = img_as_float(rgb2gray(rgb_resize_ac))
         gray_ac = gray2rgb(gray_ac) * image_alpha + (1 - image_alpha)
         cls_vis_ac = label_img_ac * alpha + gray_ac * (1 - alpha)
         cls_vis_ac = (cls_vis_ac * 255).astype(np.uint8)
 
+        rgb_resize_ren = cv2.resize(rgb_ren, (rgb_ren.shape[1], rgb_ren.shape[0]))
+        gray_ren = img_as_float(rgb2gray(rgb_resize_ren))
+        gray_ren = gray2rgb(gray_ren) * image_alpha + (1 - image_alpha)
+        cls_vis_ren = label_img_ren * alpha + gray_ren * (1 - alpha)
+        cls_vis_ren = (cls_vis_ren * 255).astype(np.uint8)
+
         # Clear axes
         for ax in axes.flatten():
             ax.clear()
-        # axes[0, 0].imshow(rgb[:,:,::-1])
-        # axes[0, 0].set_title('RGB')
-        # axes[0, 1].imshow(depth)
-        # axes[0, 1].set_title('Depth')
-        # axes[0, 2].imshow(label_img)
-        # axes[0, 2].set_title('Label')
-        # axes[0, 3].imshow(cls_vis)
-        # axes[0, 3].set_title('RGB + Label')
-        axes[1, 0].imshow(rgb_ac[:,:,::-1].astype(np.uint8))
-        axes[1, 0].set_title('RGB')
-        axes[1, 1].imshow(depth_ac)
-        axes[1, 1].set_title('Depth')
-        axes[1, 2].imshow(label_img_ac)
-        axes[1, 2].set_title('Label')
-        axes[1, 3].imshow(cls_vis_ac)
-        axes[1, 3].set_title('RGB + Label')
+        if visualize_extended_data:
+            axes[0, 0].imshow(rgb[:,:,::-1])
+            axes[0, 0].set_title('RGB')
+            axes[0, 1].imshow(depth)
+            axes[0, 1].set_title('Depth')
+            axes[0, 2].imshow(label_img)
+            axes[0, 2].set_title('Label')
+            axes[0, 3].imshow(cls_vis)
+            axes[0, 3].set_title('RGB + Label')
+        if visualize_auto_context_data:
+            axes[1, 0].imshow(rgb_ac[:,:,::-1].astype(np.uint8))
+            axes[1, 0].set_title('RGB')
+            axes[1, 1].imshow(depth_ac)
+            axes[1, 1].set_title('Depth')
+            axes[1, 2].imshow(label_img_ac)
+            axes[1, 2].set_title('Label')
+            axes[1, 3].imshow(cls_vis_ac)
+            axes[1, 3].set_title('RGB + Label')
+        if visualize_rendering_data:
+            axes[2, 0].imshow(rgb_ren[:,:,::-1])
+            axes[2, 0].set_title('RGB')
+            axes[2, 1].imshow(depth_ren)
+            axes[2, 1].set_title('Depth')
+            axes[2, 2].imshow(label_img_ren)
+            axes[2, 2].set_title('Label')
+            axes[2, 3].imshow(cls_vis_ren)
+            axes[2, 3].set_title('RGB + Label')
+
         fig.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95,
                             hspace=0.15, wspace=0.15)
         plt.draw()
