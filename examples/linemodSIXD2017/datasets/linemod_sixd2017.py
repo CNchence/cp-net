@@ -16,6 +16,12 @@ from cp_net.utils import preprocess_utils
 from cp_net.utils import inout
 from cp_net.utils import multi_object_renderer
 
+from multiprocessing import Process, Pool, cpu_count
+import itertools
+
+def tomap(args):
+    return getattr(args[0], args[1])(args[2:])
+
 
 ## super class of LinemodSIXD datasets
 class LinemodSIXDDataset(dataset.DatasetMixin):
@@ -56,8 +62,8 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
         self.rgb_fpath_mask = os.path.join(path, 'test', '{0:0>2}', 'rgb', '{1:0>4}.png')
         self.depth_fpath_mask = os.path.join(path, 'test', '{0:0>2}', 'depth', '{1:0>4}.png')
         self.mask_fpath_mask = os.path.join(path, 'test', '{0:0>2}', 'mask', '{1:0>4}_{2:0>2}.png')
-        gt_poses_mask = os.path.join(path, 'test', '{0:0>2}','gt.yml')
-        info_mask = os.path.join(path, 'test', '{0:0>2}','info.yml')
+        self.gt_poses_mask = os.path.join(path, 'test', '{0:0>2}','gt.yml')
+        self.info_mask = os.path.join(path, 'test', '{0:0>2}','info.yml')
 
         self.metric_filter = metric_filter
 
@@ -68,21 +74,20 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
         if not load_poses:
             return
 
-        for scene_idx in scene_indices:
-            print "loading gt poses : scene_{0:0>2}".format(scene_idx)
-            gts = yaml.load(open(gt_poses_mask.format(scene_idx)))
-            for im_id, gts_im in gts.items():
-                for gt in gts_im:
-                    if 'cam_R_m2c' in gt.keys():
-                        gt['cam_R_m2c'] = np.array(gt['cam_R_m2c']).reshape((3, 3))
-                    if 'cam_t_m2c' in gt.keys():
-                        gt['cam_t_m2c'] = np.array(gt['cam_t_m2c']).reshape(3)
+        gts_dict = {}
+        jobs = []
+        p = Pool(cpu_count())
+        args = itertools.izip(itertools.repeat(self), itertools.repeat('_load_gt_yaml'), scene_indices)
+        yaml_list = p.map(tomap, args)
+        p.close()
+        for i in six.moves.range(len(scene_indices)):
+            gts = yaml_list[i][0]
+            info = yaml_list[i][1]
             self.gt_poses.append(gts)
-            self.infos.append(
-                yaml.load(open(info_mask.format(scene_idx))))
+            self.infos.append(info)
             n_frames = len(gts)
             self.idx_dict = np.hstack((self.idx_dict,
-                                       np.vstack((np.ones(n_frames) * scene_idx,
+                                       np.vstack((np.ones(n_frames) * scene_indices[i],
                                                   np.arange(n_frames)))))
             self.idx_dict = self.idx_dict.astype(np.int32)
 
@@ -92,9 +97,21 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
             elif mode == 'test':
                 self.idx_dict = np.delete(self.idx_dict, self.idx_dict[:, 0::interval], axis=1)
 
-
     def __len__(self):
         return len(self.idx_dict[0])
+
+    def _load_gt_yaml(self, args):
+        sidx = args[0]
+        gts = yaml.load(open(self.gt_poses_mask.format(sidx)))
+        info = yaml.load(open(self.info_mask.format(sidx)))
+        print "load gt poses : scene_{0:0>2}".format(sidx)
+        for im_id, gts_im in gts.items():
+            for gt in gts_im:
+                if 'cam_R_m2c' in gt.keys():
+                    gt['cam_R_m2c'] = np.array(gt['cam_R_m2c']).reshape((3, 3))
+                if 'cam_t_m2c' in gt.keys():
+                    gt['cam_t_m2c'] = np.array(gt['cam_t_m2c']).reshape(3)
+        return gts, info
 
     def _get_pointcloud(self, depth_im, K, fill_nan=False):
         xs = np.tile(np.arange(depth_im.shape[1]), [depth_im.shape[0], 1])
@@ -259,8 +276,9 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         min_z = 0.5
         max_z = 1.5
         edge_offset = 5
-        for i in six.moves.range(min_obj_num):
-            target_obj = obj_ind[i]
+
+        for ii in six.moves.range(min_obj_num):
+            target_obj = obj_ind[ii]
             obj_order = np.where(self.objs==target_obj)[0][0]
             im_id = np.random.choice(self.idx_dict[1][self.idx_dict[0] == target_obj], 1)[0]
             rgb, depth = self._load_images(target_obj, im_id)
