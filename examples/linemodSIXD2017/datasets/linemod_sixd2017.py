@@ -443,7 +443,7 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
 
         ## rgb->bgr
         ren_depth = ren_depth / 1000.0
-        print np.unique(ren_label)
+
         return ren_rgb[:,:,::-1], ren_depth, ren_label, ret_pos.astype(np.float32), ret_rot.astype(np.float32)
 
 
@@ -502,6 +502,62 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
 
         return img_rgb, label.astype(np.int32), img_depth, img_cp, img_ocp, pos, rot, pc, obj_mask.astype(np.int32), nonnan_mask, K
 
+
+class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
+    def __init__(self, path, objs_indices, background_path, models_path=None,
+                 img_height = 480, img_width = 640,
+                 gaussian_noise=False,
+                 gamma_augmentation=False,
+                 avaraging=False,
+                 salt_pepper_noise=False,
+                 contrast=False,
+                 bg_flip=True,
+                 channel_swap = True,
+                 random_iteration=False,
+                 mode='test',
+                 interval=1,
+                 resize_rate = 0.5,
+                 iteration_per_epoch=1000,
+                 metric_filter=1.0):
+
+        self.auto_context_dataset = LinemodSIXDAutoContextDataset(path, objs_indices, background_path,
+                                                                  img_height=img_height, img_width=img_width,
+                                                                  gaussian_noise=gaussian_noise,
+                                                                  gamma_augmentation=gamma_augmentation,
+                                                                  avaraging=False,
+                                                                  salt_pepper_noise=salt_pepper_noise,
+                                                                  contrast=contrast,
+                                                                  mode=mode,
+                                                                  interval=interval,
+                                                                  resize_rate = resize_rate,
+                                                                  random_iteration=random_iteration,
+                                                                  iteration_per_epoch=iteration_per_epoch,
+                                                                  bg_flip=bg_flip,
+                                                                  channel_swap = channel_swap,
+                                                                  metric_filter=metric_filter)
+
+        self.rendering_dataset = LinemodSIXDRenderingDataset(path, objs_indices, background_path, models_path,
+                                                             img_height=img_height, img_width=img_width,
+                                                             gaussian_noise=gaussian_noise,
+                                                             gamma_augmentation=gamma_augmentation,
+                                                             avaraging=False,
+                                                             salt_pepper_noise=salt_pepper_noise,
+                                                             contrast=contrast,
+                                                             resize_rate = resize_rate,
+                                                             random_iteration=random_iteration,
+                                                             iteration_per_epoch=iteration_per_epoch,
+                                                             bg_flip=bg_flip,
+                                                             channel_swap = channel_swap,
+                                                             metric_filter=metric_filter)
+
+    def __len__(self):
+        return min(self.auto_context_dataset.__len__(), self.rendering_dataset.__len__())
+
+    def get_example(self, idx):
+        if np.random.randint(0, 2):
+            return self.auto_context_dataset.get_example(idx)
+        else:
+            return self.rendering_dataset.get_example(idx)
 
 
 class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
