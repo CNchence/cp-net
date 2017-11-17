@@ -402,6 +402,10 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
                            [0, 573.57043, 242.04899],
                            [0, 0, 0]])
 
+        self.iteration_per_epoch=iteration_per_epoch
+
+    def __len__(self):
+        return self.iteration_per_epoch
 
     def generate_pose(self, min_z=0.3, max_z=1.5, edge_offset=3):
         z = min_z + np.random.rand() * (max_z - min_z)
@@ -549,9 +553,11 @@ class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
                                                              bg_flip=bg_flip,
                                                              channel_swap = channel_swap,
                                                              metric_filter=metric_filter)
+        self.iteration_per_epoch = iteration_per_epoch
+
 
     def __len__(self):
-        return min(self.auto_context_dataset.__len__(), self.rendering_dataset.__len__())
+        return self.iteration_per_epoch
 
     def get_example(self, idx):
         if np.random.randint(0, 2):
