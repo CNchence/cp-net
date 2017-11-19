@@ -419,7 +419,8 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
 
 
     def render_objects(self, K, min_obj_num=5):
-        obj_num = np.random.randint(min_obj_num, len(self.objs))
+        min_objs = min(min_obj_num, len(self.objs))
+        obj_num = np.random.randint(min_objs, len(self.objs) + 1)
         obj_ind = np.random.choice(np.arange(len(self.objs)), obj_num, replace=False)
         pos_list = []
         rot_list = []
@@ -433,7 +434,7 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
             model_list.append(self.models[obj_idx])
             ret_pos[obj_idx] = pos
             ret_rot[obj_idx] = rot
-        labels_idx = obj_ind + 1
+        labels_idx = self.objs[obj_ind]
         min_light = 0.8
         ren_rgb, ren_depth, ren_label = multi_object_renderer.render(
             model_list, (self.img_width, self.img_height), K, rot_list, pos_list, 100, 4000,
@@ -476,11 +477,12 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
 
         img_cp = pos[:, :, np.newaxis, np.newaxis] - pc[np.newaxis, :, :, :]
         img_ocp = np.empty_like(img_cp)
-        for idx in six.moves.range(self.n_class - 1):
-            mask = (label_large == idx + 1).astype(np.uint8)
+        for idx in six.moves.range(self.n_class):
+            target_obj = self.objs[idx]
+            mask = (label_large == target_obj).astype(np.uint8)
             mask = cv2.resize(mask, (self.out_width, self.out_height)).astype(np.bool)
             obj_mask[idx] = mask
-            label[mask] = idx + 1
+            label[mask] = target_obj
             img_ocp[idx] = np.dot(rot[idx].T, - img_cp[idx].reshape(3, -1)).reshape(img_cp[idx].shape)
 
         img_cp = img_cp * obj_mask[:, np.newaxis, :, :].astype(np.bool)
@@ -608,7 +610,7 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
             if obj_id in self.objs:
                 idx = np.where(self.objs==obj_id)[0][0]
                 mask = cv2.imread(self.mask_fpath_mask.format(scene_id, im_id, obj_id), 0)
-                masks[idx] = (mask > 0) * 1  # Scale to [0, 1]
+                masks[idx] = (mask > 0) * 1
         return masks
 
     def get_example(self, i):
@@ -637,10 +639,11 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
         img_ocp = np.empty_like(img_cp)
 
         for idx in six.moves.range(self.n_class):
+            target_obj = self.objs[idx]
             mask = masks[idx]
             mask = cv2.resize(mask, (self.out_width, self.out_height))
             obj_mask[idx] = mask
-            label[mask.astype(np.bool)] = idx + 1
+            label[mask.astype(np.bool)] = target_obj
             img_ocp[idx] = np.dot(rot[idx].T, - img_cp[idx].reshape(3, -1)).reshape(img_cp[idx].shape)
 
         img_cp = img_cp * obj_mask[:, np.newaxis, :, :].astype(np.bool)
