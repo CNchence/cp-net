@@ -19,12 +19,13 @@ class DualCPNetworkPSPNetBase(chainer.Chain):
     ## we don't train resblock
     ## becuase resblocks is trained enough to extract features, using trained model
     def __init__(self, n_class, pre_trained_model=None, input_size=(640, 480),
-                 mid_stride=True, initialW=None):
+                 mid_stride=True, initialW=None, train_resnet=False):
         super(DualCPNetworkPSPNetBase, self).__init__()
 
         ## voc2012 settings
         n_blocks = [3, 4, 23, 3]
-        pyramids = [6, 3, 2, 1]
+        # pyramids = [6, 3, 2, 1]
+        pyramids = [12, 6, 3, 2]
         chainer.config.mid_stride = mid_stride
         mean = np.array([123.68, 116.779, 103.939])
 
@@ -36,6 +37,8 @@ class DualCPNetworkPSPNetBase(chainer.Chain):
         with self.init_scope():
             self.input_size = input_size
             self.trunk = pspnet.DilatedFCN(n_blocks=n_blocks)
+            if not train_resnet:
+                self.trunk.disable_update()
             # To calculate auxirally loss
             if chainer.config.aux_train:
                 self.cbr_aux = pspnet.ConvBNReLU(None, 512, 3, 1, 1)
@@ -61,6 +64,7 @@ class DualCPNetworkPSPNetBase(chainer.Chain):
 
         self.mean = mean
         self.n_class = n_class
+        self.train_resnet = train_resnet
 
     def __call__(self, x):
         if chainer.config.aux_train:
@@ -73,13 +77,11 @@ class DualCPNetworkPSPNetBase(chainer.Chain):
             aux_ocp = F.tanh(self.out_aux_ocp(aux))
             aux_ocp = F.resize_images(aux_ocp, x.shape[2:])
         else:
-            h = self.trunk(x)
+            if not self.train_resnet:
+                with chainer.no_backprop_mode():
+                    h = self.trunk(x)
 
         h = self.ppm(h)
-
-        h_cls = F.dropout(self.cbr_main(h), ratio=0.1)
-        h_cls = self.out_main(h_cls)
-        h_cls = F.resize_images(h_cls, x.shape[2:])
 
         h_cp = F.dropout(self.cbr_cp(h), ratio=0.1)
         h_cp = F.tanh(self.out_cp(h_cp))
@@ -89,7 +91,11 @@ class DualCPNetworkPSPNetBase(chainer.Chain):
         h_ocp = F.tanh(self.out_ocp(h_ocp))
         h_ocp = F.resize_images(h_ocp, x.shape[2:])
 
+        h = F.dropout(self.cbr_main(h), ratio=0.1)
+        h = self.out_main(h)
+        h = F.resize_images(h, x.shape[2:])
+
         if chainer.config.aux_train:
-            return aux_cls, aux_cp, aux_ocp, h_cls, h_cp, h_ocp
+            return aux_cls, aux_cp, aux_ocp, h, h_cp, h_ocp
         else:
-            return h_cls, h_cp, h_ocp
+            return h, h_cp, h_ocp
