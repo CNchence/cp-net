@@ -15,6 +15,7 @@ import yaml
 from cp_net.utils import preprocess_utils
 from cp_net.utils import inout
 from cp_net.utils import multi_object_renderer
+from cp_net.utils.imgaug_utils import ImageAugmenter
 
 from multiprocessing import Process, Pool, cpu_count
 import itertools
@@ -71,32 +72,31 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
         self.gt_poses = []
         self.infos = []
         self.idx_dict = np.array([[], []])
+        if load_poses:
+            gts_dict = {}
+            jobs = []
+            p = Pool(cpu_count())
+            args = itertools.izip(itertools.repeat(self), itertools.repeat('_load_gt_yaml'), scene_indices)
+            yaml_list = p.map_async(tomap, args).get(999999)
+            p.close()
+            for i in six.moves.range(len(scene_indices)):
+                gts = yaml_list[i][0]
+                info = yaml_list[i][1]
+                self.gt_poses.append(gts)
+                self.infos.append(info)
+                n_frames = len(gts)
+                self.idx_dict = np.hstack((self.idx_dict,
+                                           np.vstack((np.ones(n_frames) * scene_indices[i],
+                                                      np.arange(n_frames)))))
+                self.idx_dict = self.idx_dict.astype(np.int32)
 
-        if not load_poses:
-            return
+            if interval > 1:
+                if mode == 'train':
+                    self.idx_dict = self.idx_dict[:, 0::interval]
+                elif mode == 'test':
+                    self.idx_dict = np.delete(self.idx_dict, self.idx_dict[:, 0::interval], axis=1)
 
-        gts_dict = {}
-        jobs = []
-        p = Pool(cpu_count())
-        args = itertools.izip(itertools.repeat(self), itertools.repeat('_load_gt_yaml'), scene_indices)
-        yaml_list = p.map_async(tomap, args).get(999999)
-        p.close()
-        for i in six.moves.range(len(scene_indices)):
-            gts = yaml_list[i][0]
-            info = yaml_list[i][1]
-            self.gt_poses.append(gts)
-            self.infos.append(info)
-            n_frames = len(gts)
-            self.idx_dict = np.hstack((self.idx_dict,
-                                       np.vstack((np.ones(n_frames) * scene_indices[i],
-                                                  np.arange(n_frames)))))
-            self.idx_dict = self.idx_dict.astype(np.int32)
-
-        if interval > 1:
-            if mode == 'train':
-                self.idx_dict = self.idx_dict[:, 0::interval]
-            elif mode == 'test':
-                self.idx_dict = np.delete(self.idx_dict, self.idx_dict[:, 0::interval], axis=1)
+        self.imgaug = ImageAugmenter()
 
     def __len__(self):
         return len(self.idx_dict[0])
@@ -141,28 +141,6 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
         depth = cv2.imread(self.depth_fpath_mask.format(scene_id, im_id),
                            cv2.IMREAD_UNCHANGED) / 1000.0
         return rgb, depth
-
-    def rgb_augmentation(self, img):
-        ret = img.copy()
-        if self.gaussian_noise and np.random.randint(0,2):
-            ret = preprocess_utils.add_noise(ret)
-        if self.avaraging and np.random.randint(0,2):
-            ret = preprocess_utils.avaraging(ret)
-        rand_gamma = np.random.randint(0, 3)
-        if self.gamma_augmentation and rand_gamma:
-            if rand_gamma - 1:
-                ret = preprocess_utils.gamma_augmentation(ret)
-            else:
-                ret = preprocess_utils.gamma_augmentation(ret, gamma=1.5)
-        if self.salt_pepper_noise and np.random.randint(0,2):
-            ret = preprocess_utils.salt_pepper_augmentation(ret)
-        rand_contrast = np.random.randint(0, 3)
-        if self.contrast and rand_contrast:
-            if rand_contrast - 1:
-                ret = self.contrast_server.high_contrast(ret)
-            else:
-                ret = self.contrast_server.low_contrast(ret)
-        return ret
 
 
 class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
@@ -244,11 +222,6 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
 
         bg = bg[crop_h:(crop_h + resize_height), crop_w:(crop_w + resize_width)]
         bg = cv2.resize(bg, (self.img_width, self.img_height))
-        bg = self.rgb_augmentation(bg)
-        if self.bg_flip and np.random.randint(0,2):
-            bg = bg[:,::-1, :]
-        if self.channel_swap:
-            bg = bg[:, :, np.random.choice(np.arange(3), 3, replace=False)]
         return bg
 
     def estimate_visib_region(self, depth, depth_ref):
@@ -278,7 +251,6 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         min_z = 0.5
         max_z = 1.5
         edge_offset = 5
-
         for ii in six.moves.range(min_obj_num):
             target_obj = obj_ind[ii]
             obj_order = np.where(self.objs==target_obj)[0][0]
@@ -325,14 +297,17 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             # pose
             positions[obj_order] = trans_pos
             rotations[obj_order] = rot
-
-        img_rgb = self.rgb_augmentation(img_rgb)
         bg_id = np.random.randint(0, len(self.bg_fpaths))
         img_bg = self._load_bg_data(bg_id)
+        if self.bg_flip and np.random.randint(0,2):
+            img_bg = img_bg[:,::-1, :]
+        if self.channel_swap:
+            img_bg = img_bg[:, :, np.random.choice(np.arange(3), 3, replace=False)]
+
         ## random light color
         img_rgb = (img_rgb * (np.random.rand(3) * 0.4 + 0.8)[np.newaxis, np.newaxis, :])
         img_rgb = img_rgb * rgb_mask[:, :, np.newaxis] + img_bg * np.invert(rgb_mask[:, :, np.newaxis].astype(np.bool))
-        img_rgb = preprocess_utils.gaussian_blur(img_rgb)
+        img_rgb = self.imgaug.augment(img_rgb)
         imagenet_mean = np.array(
             [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
         img_rgb = img_rgb - imagenet_mean
