@@ -33,6 +33,7 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
                  salt_pepper_noise=False,
                  contrast=False,
                  mode='test',
+                 dataset='test',
                  interval=1,
                  resize_rate = 0.5,
                  load_poses=True,
@@ -59,11 +60,11 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
         if self.contrast:
             self.contrast_server = preprocess_utils.ContrastAugmentation()
 
-        self.rgb_fpath_mask = os.path.join(path, 'test', '{0:0>2}', 'rgb', '{1:0>4}.png')
-        self.depth_fpath_mask = os.path.join(path, 'test', '{0:0>2}', 'depth', '{1:0>4}.png')
-        self.mask_fpath_mask = os.path.join(path, 'test', '{0:0>2}', 'mask', '{1:0>4}_{2:0>2}.png')
-        self.gt_poses_mask = os.path.join(path, 'test', '{0:0>2}','gt.yml')
-        self.info_mask = os.path.join(path, 'test', '{0:0>2}','info.yml')
+        self.rgb_fpath_mask = os.path.join(path, dataset, '{0:0>2}', 'rgb', '{1:0>4}.png')
+        self.depth_fpath_mask = os.path.join(path, dataset, '{0:0>2}', 'depth', '{1:0>4}.png')
+        self.mask_fpath_mask = os.path.join(path, dataset, '{0:0>2}', 'mask', '{1:0>4}_{2:0>2}.png')
+        self.gt_poses_mask = os.path.join(path, dataset, '{0:0>2}','gt.yml')
+        self.info_mask = os.path.join(path, dataset, '{0:0>2}','info.yml')
 
         self.metric_filter = metric_filter
 
@@ -175,6 +176,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                  channel_swap = True,
                  random_iteration=False,
                  mode='test',
+                 dataset='test',
                  interval=1,
                  resize_rate = 0.5,
                  iteration_per_epoch=1000,
@@ -189,6 +191,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                                                             salt_pepper_noise=salt_pepper_noise,
                                                             contrast=contrast,
                                                             mode=mode,
+                                                            dataset=dataset,
                                                             interval=interval,
                                                             resize_rate = resize_rate,
                                                             load_poses=load_poses,
