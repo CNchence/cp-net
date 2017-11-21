@@ -451,7 +451,8 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
         ren_rgb, img_depth, label_large, pos, rot = self.render_objects(K)
         bg_rgb = self._load_bg_data(np.random.randint(0, len(self.bg_fpaths)))
         img_rgb = ren_rgb * (label_large != 0)[:, :, np.newaxis] + bg_rgb * (label_large == 0)[:, :, np.newaxis]
-        img_rgb = preprocess_utils.gaussian_blur(img_rgb, ksize=3)
+        if np.random.randint(0, 2):
+            img_rgb = preprocess_utils.gaussian_blur(img_rgb, ksize=3)
         # rgb
         imagenet_mean = np.array(
             [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
@@ -505,6 +506,7 @@ class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
                  interval=1,
                  resize_rate = 0.5,
                  iteration_per_epoch=1000,
+                 render=False,
                  metric_filter=1.0):
 
         self.auto_context_dataset = LinemodSIXDAutoContextDataset(path, objs_indices, background_path,
@@ -515,6 +517,7 @@ class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
                                                                   salt_pepper_noise=salt_pepper_noise,
                                                                   contrast=contrast,
                                                                   mode=mode,
+                                                                  dataset='test',
                                                                   interval=interval,
                                                                   resize_rate = resize_rate,
                                                                   random_iteration=random_iteration,
@@ -523,21 +526,39 @@ class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
                                                                   channel_swap = channel_swap,
                                                                   metric_filter=metric_filter)
 
-        self.rendering_dataset = LinemodSIXDRenderingDataset(path, objs_indices, background_path, models_path,
-                                                             img_height=img_height, img_width=img_width,
-                                                             gaussian_noise=gaussian_noise,
-                                                             gamma_augmentation=gamma_augmentation,
-                                                             avaraging=False,
-                                                             salt_pepper_noise=salt_pepper_noise,
-                                                             contrast=contrast,
-                                                             resize_rate = resize_rate,
-                                                             random_iteration=random_iteration,
-                                                             iteration_per_epoch=iteration_per_epoch,
-                                                             bg_flip=bg_flip,
-                                                             channel_swap = channel_swap,
-                                                             metric_filter=metric_filter)
-        self.iteration_per_epoch = iteration_per_epoch
+        if render:
+            self.rendering_dataset = LinemodSIXDRenderingDataset(path, objs_indices, background_path, models_path,
+                                                                 img_height=img_height, img_width=img_width,
+                                                                 gaussian_noise=gaussian_noise,
+                                                                 gamma_augmentation=gamma_augmentation,
+                                                                 avaraging=False,
+                                                                 salt_pepper_noise=salt_pepper_noise,
+                                                                 contrast=contrast,
+                                                                 resize_rate = resize_rate,
+                                                                 random_iteration=random_iteration,
+                                                                 iteration_per_epoch=iteration_per_epoch,
+                                                                 bg_flip=bg_flip,
+                                                                 channel_swap = channel_swap,
+                                                                 metric_filter=metric_filter)
+        else:
+            self.rendering_dataset = LinemodSIXDAutoContextDataset(path, objs_indices, background_path,
+                                                                   img_height=img_height, img_width=img_width,
+                                                                   gaussian_noise=gaussian_noise,
+                                                                   gamma_augmentation=gamma_augmentation,
+                                                                   avaraging=False,
+                                                                   salt_pepper_noise=salt_pepper_noise,
+                                                                   contrast=contrast,
+                                                                   mode=mode,
+                                                                   dataset='train',
+                                                                   interval=interval,
+                                                                   resize_rate = resize_rate,
+                                                                   random_iteration=random_iteration,
+                                                                   iteration_per_epoch=iteration_per_epoch,
+                                                                   bg_flip=bg_flip,
+                                                                   channel_swap = channel_swap,
+                                                                   metric_filter=metric_filter)
 
+        self.iteration_per_epoch = iteration_per_epoch
 
     def __len__(self):
         return self.iteration_per_epoch
