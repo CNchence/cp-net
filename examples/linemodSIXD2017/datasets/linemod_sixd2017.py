@@ -78,7 +78,7 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
         jobs = []
         p = Pool(cpu_count())
         args = itertools.izip(itertools.repeat(self), itertools.repeat('_load_gt_yaml'), scene_indices)
-        yaml_list = p.map(tomap, args)
+        yaml_list = p.map_async(tomap, args).get(999999)
         p.close()
         for i in six.moves.range(len(scene_indices)):
             gts = yaml_list[i][0]
@@ -108,7 +108,7 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
         for im_id, gts_im in gts.items():
             for gt in gts_im:
                 if 'cam_R_m2c' in gt.keys():
-                    gt['cam_R_m2c'] = np.array(gt['cam_R_m2c']).reshape((3, 3))
+                    gt['cam_R_m2c'] = np.array(gt['cam_R_m2c']).reshape(3, 3)
                 if 'cam_t_m2c' in gt.keys():
                     gt['cam_t_m2c'] = np.array(gt['cam_t_m2c']).reshape(3)
         return gts, info
@@ -126,15 +126,14 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
     def _load_pose(self, scene_id, im_id, obj_id):
         scene_order = np.where(self.scenes==scene_id)[0][0]
         pose = self.gt_poses[scene_order][im_id][obj_id]
-        pos = np.asarray(pose['cam_t_m2c'])
-        rot = np.asarray(pose['cam_R_m2c']).reshape(3, 3)
+        pos = pose['cam_t_m2c']
+        rot = pose['cam_R_m2c']
         return pos, rot
 
     def _load_k(self, scene_id, im_id):
         scene_order = np.where(self.scenes==scene_id)[0][0]
         info = self.infos[scene_order]
-        k = np.asarray(info[im_id]['cam_K']).reshape(3,3)
-        return k
+        return np.array(info[im_id]['cam_K']).reshape(3, 3)
 
     def _load_images(self, scene_id, im_id):
         rgb = cv2.imread(self.rgb_fpath_mask.format(scene_id, im_id))
@@ -290,6 +289,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             x = np.random.randint(edge_offset, self.img_width - edge_offset) - self.img_width / 2
             y = np.random.randint(edge_offset, self.img_height - edge_offset)- self.img_height / 2
             z = min_z + np.random.rand() * (max_z - min_z)
+            trans_pos = np.array([x * z / K[0, 0], y * z / K[1, 1], z])
             depth = depth + (z - pos[2])
             # Affine transform(scaling, translate, resize)
             g_x = K[0,2] + pos[0] * K[0,0] / pos[2]
@@ -301,8 +301,6 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             depth = cv2.warpAffine(depth, M, (self.out_width, self.out_height))
             mask = cv2.warpAffine(mask, M, (self.out_width, self.out_height))
             cp = cv2.warpAffine(cp, M, (self.out_width, self.out_height))
-            if np.sum(mask) == 0:
-                continue
             # visib mask
             visib_mask = self.estimate_visib_region(depth, img_depth)
             visib_mask = visib_mask * mask
@@ -310,15 +308,15 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             visib_mask_resize = visib_mask_resize.astype(np.bool)
             rgb_mask = np.logical_or(rgb_mask, visib_mask_resize)
             visib_mask = visib_mask.astype(np.bool)
-            trans_pos = np.array([x * z / K[0, 0], y * z / K[1, 1], z])
 
             # masking
             img_rgb[visib_mask_resize, :] = rgb[visib_mask_resize, :]
             img_depth[visib_mask] = depth[visib_mask]
             cp = (cp * visib_mask[:,:, np.newaxis]).transpose(2,0,1)
-            ocp = np.dot(rot.T, - cp.reshape(3, -1)).reshape(cp.shape)
+            cp[np.abs(cp) > self.metric_filter] = 0
+            cp[cp != cp] = 0
+            img_ocp[obj_order] = np.dot(rot.T, - cp.reshape(3, -1)).reshape(cp.shape)
             img_cp[obj_order] = cp
-            img_ocp[obj_order] = ocp
             obj_mask[obj_order] = visib_mask
             label[visib_mask] = target_obj
             # pose
@@ -344,15 +342,8 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         img_cp = img_cp.astype(np.float32)
         img_ocp = img_ocp.astype(np.float32)
 
-        img_cp[img_cp != img_cp] = 0
-        img_ocp[img_ocp != img_ocp] = 0
-
-        img_cp[np.abs(img_cp) > self.metric_filter] = 0
-        img_ocp[np.abs(img_ocp) > self.metric_filter] = 0
-
         ## ignore nan
         # label[np.isnan(pc[0]) * (label == 0)] = -1
-
         return img_rgb, label.astype(np.int32), img_depth, img_cp, img_ocp, positions, rotations, pc, obj_mask.astype(np.int32), nonnan_mask, K
 
 
@@ -457,22 +448,19 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
         ren_rgb, img_depth, label_large, pos, rot = self.render_objects(K)
         bg_rgb = self._load_bg_data(np.random.randint(0, len(self.bg_fpaths)))
         img_rgb = ren_rgb * (label_large != 0)[:, :, np.newaxis] + bg_rgb * (label_large == 0)[:, :, np.newaxis]
-        label_large[label_large < 0] = 0
         img_rgb = preprocess_utils.gaussian_blur(img_rgb, ksize=3)
         # rgb
         imagenet_mean = np.array(
             [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
         img_rgb = img_rgb - imagenet_mean
-        img_rgb = img_rgb / 255.0  # Scale to [0, 1];
+        img_rgb = img_rgb / 255.0
         img_rgb = img_rgb.transpose(2,0,1).astype(np.float32)
-
-        obj_mask = np.empty((self.n_class - 1, self.out_height, self.out_width))
 
         ## depth
         K = 1.0 * self.out_height / img_depth.shape[0] * K
         img_depth = cv2.resize(img_depth, (self.out_width, self.out_height))
         ## point cloud
-        pc = self._get_pointcloud(img_depth, K, fill_nan=True).transpose(2,0,1)
+        pc = self._get_pointcloud(img_depth, K, fill_nan=False).transpose(2,0,1)
 
         ## mask
         label = np.zeros((self.out_height, self.out_width))
@@ -480,6 +468,7 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
         nonnan_mask = np.invert(np.isnan(pc[0])).astype(np.float32)
 
         img_cp = pos[:, :, np.newaxis, np.newaxis] - pc[np.newaxis, :, :, :]
+        img_cp[np.abs(img_cp) > self.metric_filter] = 0
         img_ocp = np.empty_like(img_cp)
         for idx in six.moves.range(self.n_class):
             target_obj = self.objs[idx]
@@ -492,19 +481,8 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
         img_cp = img_cp * obj_mask[:, np.newaxis, :, :].astype(np.bool)
         img_ocp = img_ocp * obj_mask[:, np.newaxis, :, :].astype(np.bool)
 
-        obj_mask = obj_mask * nonnan_mask
-
         img_cp = img_cp.astype(np.float32)
         img_ocp = img_ocp.astype(np.float32)
-
-        img_cp[img_cp != img_cp] = 0
-        img_ocp[img_ocp != img_ocp] = 0
-
-        img_cp[np.abs(img_cp) > self.metric_filter] = 0
-        img_ocp[np.abs(img_ocp) > self.metric_filter] = 0
-
-        ## ignore nan
-        label[np.isnan(pc[0]) * (label == 0)] = -1
 
         return img_rgb, label.astype(np.int32), img_depth, img_cp, img_ocp, pos, rot, pc, obj_mask.astype(np.int32), nonnan_mask, K
 
@@ -610,13 +588,14 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
     def _load_masks(self, scene_id, im_id):
         scene_order = np.where(self.scenes==scene_id)[0][0]
         poses = self.gt_poses[scene_order][im_id]
-        masks = np.zeros((self.n_class, self.img_height, self.img_width))
+        masks = np.zeros((self.img_height, self.img_width, self.n_class))
         for pose in poses:
             obj_id = pose['obj_id']
             if obj_id in self.objs:
                 idx = np.where(self.objs==obj_id)[0][0]
                 mask = cv2.imread(self.mask_fpath_mask.format(scene_id, im_id, obj_id), 0)
-                masks[idx] = (mask > 0) * 1
+                masks[:, :, idx] = (mask > 0) * 1
+
         return masks
 
     def get_example(self, i):
@@ -628,8 +607,7 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
         # rgb
         imagenet_mean = np.array(
             [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
-        img_rgb = img_rgb - imagenet_mean
-        img_rgb = img_rgb / 255.0  # Scale to [0, 1];
+        img_rgb = (img_rgb - imagenet_mean) / 255.0
         img_rgb = img_rgb.transpose(2,0,1).astype(np.float32)
         ## depth
         K = 1.0 * self.out_height / img_depth.shape[0] * K
@@ -638,37 +616,26 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
         pc = self._get_pointcloud(img_depth, K, fill_nan=True).transpose(2,0,1)
         ## mask
         label = np.zeros((self.out_height, self.out_width))
-        obj_mask = np.empty((self.n_class, self.out_height, self.out_width))
         nonnan_mask = np.invert(np.isnan(pc[0])).astype(np.float32)
 
+        obj_mask = cv2.resize(masks, (self.out_width, self.out_height)).transpose(2,0,1)
+        obj_mask = obj_mask * nonnan_mask
+
         img_cp = pos[:, :, np.newaxis, np.newaxis] - pc[np.newaxis, :, :, :]
+        img_cp[img_cp != img_cp] = 0
+        img_cp[np.abs(img_cp) > self.metric_filter] = 0
+        img_cp = img_cp * obj_mask[:, np.newaxis, :, :].astype(np.bool)
         img_ocp = np.empty_like(img_cp)
 
         for idx in six.moves.range(self.n_class):
             target_obj = self.objs[idx]
-            mask = masks[idx]
-            mask = cv2.resize(mask, (self.out_width, self.out_height))
-            obj_mask[idx] = mask
-            label[mask.astype(np.bool)] = target_obj
+            label[obj_mask[idx].astype(np.bool)] = target_obj
             img_ocp[idx] = np.dot(rot[idx].T, - img_cp[idx].reshape(3, -1)).reshape(img_cp[idx].shape)
-
-        img_cp = img_cp * obj_mask[:, np.newaxis, :, :].astype(np.bool)
-        img_ocp = img_ocp * obj_mask[:, np.newaxis, :, :].astype(np.bool)
-
-        obj_mask = obj_mask * nonnan_mask
-
         img_cp = img_cp.astype(np.float32)
         img_ocp = img_ocp.astype(np.float32)
 
-        img_cp[img_cp != img_cp] = 0
-        img_ocp[img_ocp != img_ocp] = 0
-
-        img_cp[np.abs(img_cp) > self.metric_filter] = 0
-        img_ocp[np.abs(img_ocp) > self.metric_filter] = 0
-
         ## ignore nan
         label[np.isnan(pc[0]) * (label == 0)] = -1
-
         return img_rgb, label.astype(np.int32), img_depth, img_cp, img_ocp, pos, rot, pc, obj_mask.astype(np.int32), nonnan_mask, K
 
 
