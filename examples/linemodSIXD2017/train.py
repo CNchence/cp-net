@@ -21,7 +21,7 @@ from chainer.links.caffe import CaffeFunction
 
 from cp_net.models.dual_cp_network_ver2 import DualCenterProposalNetworkRes50_predict7
 from cp_net.classifiers.dual_cp_classifier import DualCPNetClassifier
-from datasets.linemod_sixd2017 import LinemodSIXDAutoContextDataset, LinemodSIXDExtendedDataset
+from datasets.linemod_sixd2017 import LinemodSIXDAutoContextDataset, LinemodSIXDExtendedDataset, LinemodSIXDCombinedDataset
 
 
 from sklearn.cross_validation import train_test_split
@@ -107,7 +107,8 @@ def main():
     objs = np.arange(15) + 1
     n_class = len(objs) + 1
     train_path = os.path.join(os.getcwd(), root, 'train_data/linemodSIXD2017')
-    bg_path = os.path.join(os.getcwd(), root, 'train_data/VOCdevkit/VOC2012/JPEGImages')
+    # bg_path = os.path.join(os.getcwd(), root, 'train_data/VOCdevkit/VOC2012/JPEGImages')
+    bg_path = os.path.join(os.getcwd(), root, 'train_data/MS_COCO/train2017')
     caffe_model = 'ResNet-50-model.caffemodel'
 
     distance_sanity = 0.05
@@ -132,17 +133,36 @@ def main():
     # Setup an optimizer
     optimizer = chainer.optimizers.MomentumSGD(lr=0.01, momentum=0.9)
     optimizer.setup(model)
+    optimizer.add_hook(chainer.optimizer.WeightDecay(0.0001))
 
     # load train data
-    train = LinemodSIXDAutoContextDataset(train_path, objs, bg_path,
-                                          gaussian_noise=False,
-                                          gamma_augmentation=True,
-                                          avaraging=True,
-                                          salt_pepper_noise=True,
-                                          contrast=False,
-                                          mode='train',
-                                          interval=interval,
-                                          metric_filter=output_scale + eps)
+    train = LinemodSIXDCombinedDataset(train_path, objs, bg_path,
+                                       gaussian_noise=True,
+                                       gamma_augmentation=True,
+                                       avaraging=True,
+                                       salt_pepper_noise=True,
+                                       contrast=False,
+                                       mode='train',
+                                       render=False,
+                                       interval=interval,
+                                       iteration_per_epoch=1000,
+                                       metric_filter=output_scale + eps)
+
+    # train = LinemodSIXDAutoContextDataset(train_path, objs, bg_path,
+    #                                       gaussian_noise=True,
+    #                                       gamma_augmentation=True,
+    #                                       avaraging=True,
+    #                                       salt_pepper_noise=True,
+    #                                       contrast=False,
+    #                                       mode='train',
+    #                                       interval=interval,
+    #                                       iteration_per_epoch=1000,
+    #                                       metric_filter=output_scale + eps)
+
+    # train = LinemodSIXDExtendedDataset(train_path, objs,
+    #                                    mode='train',
+    #                                    interval=interval,
+    #                                    metric_filter=output_scale + eps)
     # load test data
     test = LinemodSIXDExtendedDataset(train_path, objs,
                                       mode='test',
@@ -152,6 +172,11 @@ def main():
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
                                                  repeat=False, shuffle=False)
+
+    # train_iter = chainer.iterators.MultiprocessIterator(train, args.batchsize)
+    # test_iter = chainer.iterators.MultiprocessIterator(test, args.batchsize,
+    #                                                    repeat=False, shuffle=False)
+
 
     updater = training.StandardUpdater(train_iter, optimizer, device=args.gpu)
     trainer = training.Trainer(updater, (args.epoch, 'epoch'), out=args.out)
