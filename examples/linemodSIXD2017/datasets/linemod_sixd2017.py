@@ -9,6 +9,7 @@ import random
 import numpy as np
 import quaternion
 import cv2
+from PIL import Image
 import six
 import yaml
 
@@ -137,10 +138,14 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
         return np.array(info[im_id]['cam_K']).reshape(3, 3)
 
     def _load_images(self, scene_id, im_id):
-        rgb = cv2.imread(self.rgb_fpath_mask.format(scene_id, im_id))
-        depth = cv2.imread(self.depth_fpath_mask.format(scene_id, im_id),
-                           cv2.IMREAD_UNCHANGED) / 1000.0
-        return rgb, depth
+        f_rgb = Image.open(self.rgb_fpath_mask.format(scene_id, im_id))
+        f_depth = Image.open(self.depth_fpath_mask.format(scene_id, im_id))
+        rgb = f_rgb.convert('RGB')
+        depth = f_depth.convert('I')
+        rgb = np.asarray(rgb)
+        depth = np.asarray(depth)/1000.0
+        #rgb->bgr
+        return rgb[:,:,::-1], depth
 
 
 class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
@@ -208,20 +213,22 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             obj_id = pose['obj_id']
             if obj_id == scene_id:
                 idx = np.where(self.objs==obj_id)[0][0]
-                mask = cv2.imread(self.mask_fpath_mask.format(scene_id, im_id, obj_id), 0)
+                f = Image.open(self.mask_fpath_mask.format(scene_id, im_id, obj_id))
+                mask = np.asarray(f.convert('P'))
         return mask
 
     def _load_bg_data(self, idx):
-        bg = cv2.imread(self.bg_fpaths[idx])
-        # random crop
-        height, width, ch = bg.shape
+        f = Image.open(self.bg_fpaths[idx])
+        img = f.convert('RGB')
+        width, height = img.size
         resize_height = int((np.random.rand() * 0.5 + 0.5) * height)
         resize_width = int((np.random.rand() * 0.5 + 0.5) * width)
         crop_h = np.floor((height - resize_height) * np.random.rand()).astype(np.int64)
         crop_w = np.floor((width - resize_width) * np.random.rand()).astype(np.int64)
-
-        bg = bg[crop_h:(crop_h + resize_height), crop_w:(crop_w + resize_width)]
-        bg = cv2.resize(bg, (self.img_width, self.img_height))
+        box = (crop_w, crop_h, crop_w + resize_width, crop_h + resize_height)
+        img = img.crop(box)
+        img = img.resize((self.img_width, self.img_height))
+        bg = np.asarray(img, dtype=np.uint8)
         return bg
 
     def estimate_visib_region(self, depth, depth_ref):
@@ -279,8 +286,9 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             # visib mask
             visib_mask = self.estimate_visib_region(depth, img_depth)
             visib_mask = visib_mask * mask
-            visib_mask_resize = cv2.resize(visib_mask, (self.img_width, self.img_height))
-            visib_mask_resize = visib_mask_resize.astype(np.bool)
+            pilimg = Image.fromarray(np.uint8(visib_mask))
+            pilimg = pilimg.resize((self.img_width, self.img_height))
+            visib_mask_resize = np.asarray(pilimg).astype(np.bool)
             rgb_mask = np.logical_or(rgb_mask, visib_mask_resize)
             visib_mask = visib_mask.astype(np.bool)
 
@@ -592,7 +600,8 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
             obj_id = pose['obj_id']
             if obj_id in self.objs:
                 idx = np.where(self.objs==obj_id)[0][0]
-                mask = cv2.imread(self.mask_fpath_mask.format(scene_id, im_id, obj_id), 0)
+                f = Image.open(self.mask_fpath_mask.format(scene_id, im_id, obj_id))
+                mask = np.asarray(f.convert('P'))
                 masks[:, :, idx] = (mask > 0) * 1
 
         return masks
