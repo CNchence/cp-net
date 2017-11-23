@@ -237,6 +237,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         return visib_mask
 
     def get_example(self, i):
+        cv2.setNumThreads(0)
         scene_id, im_id = self.idx_dict[:, i]
         K = self._load_k(scene_id, im_id)
 
@@ -430,6 +431,7 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
 
 
     def get_example(self, i):
+        cv2.setNumThreads(0)
         K = self.K.copy()
         ren_rgb, img_depth, label_large, pos, rot = self.render_objects(K)
         bg_rgb = self._load_bg_data(np.random.randint(0, len(self.bg_fpaths)))
@@ -607,6 +609,7 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
         return masks
 
     def get_example(self, i):
+        cv2.setNumThreads(0)
         scene_id, im_id = self.idx_dict[:, i]
         img_rgb, img_depth = self._load_images(scene_id, im_id)
         masks = self._load_masks(scene_id, im_id)
