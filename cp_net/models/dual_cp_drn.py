@@ -19,7 +19,7 @@ class DualCPDRN(chainer.Chain):
     ## we don't train resblock
     ## becuase resblocks is trained enough to extract features, using trained model
     def __init__(self, n_class, pre_trained_model=None, input_size=(640, 480),
-                 mid_stride=True, initialW=None, train_resnet=False):
+                 mid_stride=True, initialW=None, train_res5=True):
         super(DualCPDRN, self).__init__()
         ## voc2012 settings
         n_blocks = [3, 4, 23, 3]
@@ -33,19 +33,7 @@ class DualCPDRN(chainer.Chain):
 
         with self.init_scope():
             self.input_size = input_size
-            self.trunk = pspnet.DilatedFCN(n_blocks=n_blocks)
-            if not train_resnet:
-                self.trunk.disable_update()
-            # To calculate auxirally loss
-            if chainer.config.aux_train:
-                self.cbr_aux = pspnet.ConvBNReLU(None, 512, 3, 1, 1)
-                self.out_aux = L.Convolution2D(
-                    512, n_class, 3, 1, 1, False, initialW)
-                self.out_aux_cp = L.Convolution2D(
-                    512, (n_class - 1) * 3, 3, 1, 1, False, initialW)
-                self.out_aux_ocp = L.Convolution2D(
-                    512, (n_class - 1) * 3, 3, 1, 1, False, initialW)
-
+            self.trunk = pspnet.PretrainedDilatedFCN(n_blocks=n_blocks, train_res5=train_res5)
             # Main branch
             self.cbr_main = pspnet.ConvBNReLU(2048, 512, 3, 1, 1)
             self.out_main = L.Convolution2D(
@@ -62,20 +50,7 @@ class DualCPDRN(chainer.Chain):
         self.train_resnet = train_resnet
 
     def __call__(self, x):
-        if chainer.config.aux_train:
-            aux, h = self.trunk(x)
-            aux = F.dropout(self.cbr_aux(aux), ratio=0.1)
-            aux_cls = self.out_aux(aux)
-            aux_cls = F.resize_images(aux_cls, x.shape[2:])
-            aux_cp = F.tanh(self.out_aux_cp(aux))
-            aux_cp = F.resize_images(aux_cp, x.shape[2:])
-            aux_ocp = F.tanh(self.out_aux_ocp(aux))
-            aux_ocp = F.resize_images(aux_ocp, x.shape[2:])
-        else:
-            if not self.train_resnet:
-                with chainer.no_backprop_mode():
-                    h = self.trunk(x)
-
+        h = self.trunk(x)
         h_cp = F.dropout(self.cbr_cp(h), ratio=0.1)
         h_cp = F.tanh(self.out_cp(h_cp))
         h_cp = F.resize_images(h_cp, x.shape[2:])
@@ -88,7 +63,4 @@ class DualCPDRN(chainer.Chain):
         h = self.out_main(h)
         h = F.resize_images(h, x.shape[2:])
 
-        if chainer.config.aux_train:
-            return aux_cls, aux_cp, aux_ocp, h, h_cp, h_ocp
-        else:
-            return h, h_cp, h_ocp
+        return h, h_cp, h_ocp

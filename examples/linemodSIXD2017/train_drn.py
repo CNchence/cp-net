@@ -18,8 +18,9 @@ import chainer.functions as F
 from chainer.training import extensions
 
 from cp_net.models.dual_cp_psp import DualCPNetworkPSPNetBase
+from cp_net.models.dual_cp_drn import DualCPDRN
 from cp_net.classifiers.dual_cp_classifier import DualCPNetClassifier
-from datasets.linemod_sixd2017 import LinemodSIXDAutoContextDataset, LinemodSIXDExtendedDataset
+from datasets.linemod_sixd2017 import LinemodSIXDAutoContextDataset, LinemodSIXDExtendedDataset, LinemodSIXDCombinedDataset
 
 import convert_pspnet
 
@@ -32,16 +33,19 @@ import numpy as np
 
 root = '../..'
 
-def _make_chainermodel_npz(model, path_npz, param_fn, proto_fn, num_class, im_size=(640, 480)):
+def _make_chainermodel_npz(model, path_npz, param_fn, proto_fn, num_class, im_size=(640, 480), psp=False):
     print('Now loading caffemodel (usually it may take few minutes)')
     if not os.path.exists(param_fn):
         raise IOError('The pre-trained caffemodel does not exist.')
     if not os.path.exists(proto_fn):
         raise IOError('prototxt does not exist.')
     param, net = convert_pspnet.get_param_net(param_fn, proto_fn)
-    with chainer.using_config('aux_train', True):
-        chainermodel = DualCPNetworkPSPNetBase(n_class=num_class, input_size=(640, 480))
-        chainermodel(np.random.rand(1, 3, im_size[1], im_size[0]).astype(np.float32))
+    if psp:
+        with chainer.using_config('aux_train', True):
+            chainermodel = DualCPNetworkPSPNetBase(n_class=num_class, input_size=(640, 480))
+    else:
+        chainermodel = DualCPDRN(n_class=num_class, input_size=(640, 480))
+    chainermodel(np.random.rand(1, 3, im_size[1], im_size[0]).astype(np.float32))
     chainermodel = convert_pspnet.transfer(chainermodel, param, net)
     classifier_model = L.Classifier(chainermodel)
     serializers.save_npz(path_npz, classifier_model, compression=False)
@@ -74,13 +78,15 @@ def main():
                         help='train resnet')
     parser.add_argument('--train-resnet', dest='train_resnet', action='store_true')
     parser.set_defaults(train_resnet=False)
+    parser.add_argument('--psp', dest='train_resnet', action='store_true')
+    parser.set_defaults(use_psp=False)
     parser.add_argument('--no-accuracy', dest='compute_acc', action='store_false')
     parser.set_defaults(compute_acc=True)
     parser.add_argument('--no-pose-accuracy', dest='compute_pose_acc', action='store_false')
     parser.set_defaults(compute_pose_acc=True)
 
     args = parser.parse_args()
-
+    use_psp = args.use_psp
 
     compute_class_accuracy = args.compute_acc
     compute_pose_accuracy = args.compute_pose_acc and args.compute_acc
@@ -100,7 +106,6 @@ def main():
     train_path = os.path.join(os.getcwd(), root, 'train_data/linemodSIXD2017')
     # bg_path = os.path.join(os.getcwd(), root, 'train_data/VOCdevkit/VOC2012/JPEGImages')
     bg_path = os.path.join(os.getcwd(), root, 'train_data/MS_COCO/train2017')
-    caffe_model = 'ResNet-50-model.caffemodel'
 
     distance_sanity = 0.05
     output_scale = 0.14
@@ -108,8 +113,12 @@ def main():
     interval = 15
 
     chainer.using_config('cudnn_deterministic', True)
+    if use_psp:
+        model = DualCPNetworkPSPNetBase(n_class=n_class)
+    else:
+        model = DualCPDRN(n_class=n_class)
     model = DualCPNetClassifier(
-        DualCPNetworkPSPNetBase(n_class=n_class),
+        model,
         basepath=train_path,
         im_size=im_size,
         distance_sanity=distance_sanity,
@@ -126,16 +135,29 @@ def main():
     optimizer.setup(model)
 
     # # load train data
-    train = LinemodSIXDAutoContextDataset(train_path, objs, bg_path,
-                                          gaussian_noise=True,
-                                          gamma_augmentation=True,
-                                          avaraging=True,
-                                          salt_pepper_noise=True,
-                                          contrast=False,
-                                          mode='train',
-                                          interval=interval,
-                                          resize_rate = 1.0,
-                                          metric_filter=output_scale + eps)
+    # train = LinemodSIXDAutoContextDataset(train_path, objs, bg_path,
+    #                                       gaussian_noise=True,
+    #                                       gamma_augmentation=True,
+    #                                       avaraging=True,
+    #                                       salt_pepper_noise=True,
+    #                                       contrast=False,
+    #                                       mode='train',
+    #                                       interval=interval,
+    #                                       resize_rate = 1.0,
+    #                                       metric_filter=output_scale + eps)
+
+    # train = LinemodSIXDExtendedDataset(train_path, objs,
+    #                                   mode='train',
+    #                                   interval=interval,
+    #                                   resize_rate = 1.0,
+    #                                   metric_filter=output_scale + eps)
+
+    train = LinemodSIXDCombinedDataset(train_path, objs, bg_path,
+                                       mode='train',
+                                       interval=interval,
+                                       resize_rate=1.0,
+                                       metric_filter=output_scale + eps)
+
     # load test data
     test = LinemodSIXDExtendedDataset(train_path, objs,
                                       mode='test',
@@ -143,8 +165,12 @@ def main():
                                       resize_rate = 1.0,
                                       metric_filter=output_scale + eps)
 
-    train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
-    test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
+    # train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
+    # test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
+    #                                              repeat=False, shuffle=False)
+
+    train_iter = chainer.iterators.MultiprocessIterator(train, args.batchsize)
+    test_iter = chainer.iterators.MultiprocessIterator(test, args.batchsize,
                                                  repeat=False, shuffle=False)
 
     updater = training.StandardUpdater(train_iter, optimizer, device=args.gpu)
@@ -182,7 +208,10 @@ def main():
         # Resume from a snapshot
         chainer.serializers.load_npz(args.resume, trainer)
     else:
-        npz_name = 'DualCPNetworkPSPNetBase_LinemodSIXD.npz'
+        if use_psp:
+            npz_name = 'DualCPNetworkPSPNetBase_LinemodSIXD.npz'
+        else:
+            npz_name = 'DualCPDRN_LinemodSIXD.npz'
         caffemodel_name = 'pspnet101_VOC2012.caffemodel'
         path = os.path.join(root, 'trained_data/', npz_name)
         path_caffemodel = os.path.join(root, 'trained_data/', caffemodel_name)
@@ -191,7 +220,7 @@ def main():
         print 'caffe model path : ' + path_caffemodel
         download.cache_or_load_file(
             path,
-            lambda path: _make_chainermodel_npz(model, path, path_caffemodel, path_prototxt, n_class),
+            lambda path: _make_chainermodel_npz(model, path, path_caffemodel, path_prototxt, n_class, psp=use_psp),
             lambda path: serializers.load_npz(path, model))
 
     # Run the training

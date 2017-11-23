@@ -168,6 +168,43 @@ class DilatedFCN(chainer.Chain):
             h = self.res4(h)
             return self.res5(h)
 
+class PretrainedDilatedFCN(chainer.Chain):
+
+    def __init__(self, n_blocks, train_res5=False):
+        super(DilatedFCN, self).__init__()
+        with self.init_scope():
+            self.cbr1_1 = ConvBNReLU(None, 64, 3, 2, 1)
+            self.cbr1_2 = ConvBNReLU(64, 64, 3, 1, 1)
+            self.cbr1_3 = ConvBNReLU(64, 128, 3, 1, 1)
+            self.res2 = ResBlock(n_blocks[0], 128, 64, 256, 1)
+            self.res3 = ResBlock(n_blocks[1], 256, 128, 512, 2)
+            self.res4 = DilatedResBlock(n_blocks[2], 512, 256, 1024, 2)
+            self.res5 = DilatedResBlock(n_blocks[3], 1024, 512, 2048, 4)
+
+        self.cbr1_1.disable_update()
+        self.cbr1_2.disable_update()
+        self.cbr1_3.disable_update()
+        self.res2.disable_update()
+        self.res3.disable_update()
+        self.res4.disable_update()
+        if not train_res5:
+            self.res5.disable_update()
+        self.train_res5 = train_res5
+
+    def __call__(self, x):
+        with chainer.no_backprop_mode():
+            h = self.cbr1_3(self.cbr1_2(self.cbr1_1(x)))  # 1/2
+            h = F.max_pooling_2d(h, 3, 2, 1)  # 1/4
+            h = self.res2(h)
+            h = self.res3(h)  # 1/8
+            h = self.res4(h)
+        if self.train_res5:
+            h = self.res5(h)
+        else:
+            with chainer.no_backprop_mode():
+                h = self.res5(h)
+        return h
+
 
 class PSPNet(chainer.Chain):
 
