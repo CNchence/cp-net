@@ -3,10 +3,12 @@
 import argparse
 import os
 import glob
+import six
 
 import chainer
 from chainer import cuda
 import numpy as np
+import quaternion
 import cv2
 import matplotlib.pyplot as plt
 
@@ -78,6 +80,10 @@ def main():
     fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(16, 10))
     im_ids = range(test.__len__())
 
+    # pose estimator instance
+    pei = SimplePoseEstimationInterface(distance_sanity=distance_sanity,
+                                        base_path=data_path,
+                                        min_distance=min_distance, eps=eps, im_size=im_size)
     imagenet_mean = np.array(
         [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
     colors= ('grey', 'red', 'blue', 'yellow', 'magenta', 'green', 'indigo', 'darkorange', 'cyan', 'pink',
@@ -98,8 +104,12 @@ def main():
                 cls_pred = chainer.cuda.to_cpu(cls_pred.data)
                 cls_prob = chainer.cuda.to_cpu(cls_prob.data)
                 y_cls = chainer.cuda.to_cpu(y_cls_d.data)[0]
+                y_cp = chainer.cuda.to_cpu(y_cp_d.data)[0]
+                y_ocp = chainer.cuda.to_cpu(y_ocp_d.data)[0]
 
         cls_pred[cls_prob < prob_eps] = 0
+
+        y_pos, y_rot = pei.execute(y_cls, y_cp * output_scale, y_ocp * output_scale, img_depth, K)
 
         img_rgb = (img_rgb.transpose(1,2,0) * 255.0 + imagenet_mean).astype(np.uint8)
         img_rgb_resize = cv2.resize(img_rgb, (img_rgb.shape[1] / 2, img_rgb.shape[0] / 2))
@@ -120,6 +130,14 @@ def main():
         cls_vis_gt = (cls_vis_gt * 255).astype(np.uint8)
         cls_vis = cls_mask * alpha + gray * (1 - alpha)
         cls_vis = (cls_vis * 255).astype(np.uint8)
+
+        for i in six.moves.range(n_class - 1):
+            if np.sum(pos[i]) != 0 and  np.sum(rot[i]) != 0:
+                pos_diff = np.linalg.norm(y_pos[i] - pos[i])
+                quat = quaternion.from_rotation_matrix(np.dot(y_rot[i].T, rot[i]))
+                quat_w = min(1, abs(quat.w))
+                diff_angle = np.rad2deg(np.arccos(quat_w)) * 2
+                print "obj_{0:0>2} : position_diff = {1}, rotation_diff = {2}".format(i + 1, pos_diff, diff_angle)
 
         # Clear axes
         for ax in axes.flatten():
