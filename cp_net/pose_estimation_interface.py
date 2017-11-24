@@ -31,21 +31,6 @@ class SimplePoseEstimationInterface(object):
         self.distance_sanity = distance_sanity
         self.min_distance = min_distance
         self.im_size = im_size
-        ## for flann
-        self.flann_search_idx = []
-        self.models_pc = []
-        self.objs = objs
-        pyflann.set_distance_type('euclidean')
-        for obj_name in objs:
-            pc = pypcd.PointCloud.from_path(
-                os.path.join(base_path, 'models_pcd', obj_name + '.pcd'))
-            pc = np.asarray(pc.pc_data.tolist())[:,:3] ## only use xyz
-
-            search_idx = pyflann.FLANN()
-            search_idx.build_index(pc[0::model_partial, :], algorithm='kmeans',
-                                   centers_init='kmeanspp', random_seed=1234)
-            self.flann_search_idx.append(search_idx)
-            self.models_pc.append(pc)
 
     def _get_pointcloud(self, depth_im, K):
         xs = np.tile(np.arange(depth_im.shape[1]), [depth_im.shape[0], 1])
@@ -119,16 +104,10 @@ class SimplePoseEstimationInterface(object):
             ## Remove outlier direct Center Point
             cp_mask3d = (y_cp_nonzero - y_cp_mean < 0.1)
             cp_mask = (np.sum(cp_mask3d, axis=0) == 3)
-            ## flann refinement
-            num_nn = 2
-            flann_ret, flann_dist = self.flann_search_idx[i_c].nn_index(y_ocp_reshape[:, pmask].transpose(1, 0), num_nn)
-            flann_ret_unique = np.unique(flann_ret.ravel())
-            flann_mask = (flann_dist[:, 0] < 5e-3)
-            refine_mask = cp_mask * flann_mask
-            if np.sum(refine_mask) < 10:
+            if np.sum(cp_mask) < 10:
                 continue
-            t_pc_nonzero = t_pc_reshape[:, pmask][:, refine_mask]
-            y_ocp_nonzero = y_ocp_reshape[:, pmask][:, refine_mask]
+            t_pc_nonzero = t_pc_reshape[:, pmask][:, cp_mask]
+            y_ocp_nonzero = y_ocp_reshape[:, pmask][:, cp_mask]
             ret_ocp, ret_R = pose_estimation.simple_ransac_estimation_cpp(t_pc_nonzero, y_ocp_nonzero)
 
             estimated_ocp[i_c] =  ret_ocp
@@ -142,6 +121,7 @@ class PoseEstimationInterface(object):
     def __init__(self, eps=0.2,
                  distance_sanity=0.1, min_distance=0.005,
                  base_path = 'OcclusionChallengeICCV2015',
+                 mseh_basepath = None,
                  objs =['Ape', 'Can', 'Cat', 'Driller', 'Duck', 'Eggbox', 'Glue', 'Holepuncher'],
                  model_partial= 1,
                  K =  np.array([[572.41140, 0, 325.26110],
@@ -151,10 +131,29 @@ class PoseEstimationInterface(object):
                  im_size = (640, 480)):
         super.__init__(eps, distance_sanity, min_distance, base_path,
                  objs, model_partial, K, im_size)
+        # ## for flann
+        # self.flann_search_idx = []
+        # self.models_pc = []
+        # self.objs = objs
+        # pyflann.set_distance_type('euclidean')
+        # for obj_name in objs:
+        #     pc = pypcd.PointCloud.from_path(
+        #         os.path.join(base_path, 'models_pcd', obj_name + '.pcd'))
+        #     pc = np.asarray(pc.pc_data.tolist())[:,:3] ## only use xyz
+
+        #     search_idx = pyflann.FLANN()
+        #     search_idx.build_index(pc[0::model_partial, :], algorithm='kmeans',
+        #                            centers_init='kmeanspp', random_seed=1234)
+        #     self.flann_search_idx.append(search_idx)
+        #     self.models_pc.append(pc)
+
         # for Cypose_estimator
         self.mesh_pathes = []
         for obj_name in objs:
-            mesh_path = os.path.join(base_path, 'models_ply', obj_name + '.ply')
+            if mesh_basepath is None:
+                mesh_path = os.path.join(base_path, 'models_ply', obj_name + '.ply')
+            else:
+                mesh_path = os.path.join(mesh_basepath,  obj_name + '.ply')
             self.mesh_pathes.append(mesh_path)
 
         self.pose_estimator = pose_estimation.CyPoseEstimator(self.mesh_pathes,
