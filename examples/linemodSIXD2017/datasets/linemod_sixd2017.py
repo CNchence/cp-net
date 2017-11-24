@@ -187,8 +187,19 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         self.iteration_per_epoch = iteration_per_epoch
         self.resize_rate = resize_rate
 
+        self.order = None
+        self.bincnt =np.bincount(self.idx_dict[0], minlength=self.n_class)
+        self.min_len = np.min(self.bincnt[self.bincnt > 0])
+        self._set_order()
+        self.iter_cnt = 0
+
     def __len__(self):
-        return min(self.iteration_per_epoch, len(self.idx_dict[0]))
+        return min(self.iteration_per_epoch, self.min_len)
+
+    def _set_order(self):
+        self.order = {}
+        for obj in self.objs:
+            self.order[obj] = np.random.choice(self.bincnt[obj], self.min_len, replace=False)
 
     def _load_pose(self, scene_id, im_id):
         scene_order = np.where(self.scenes==scene_id)[0][0]
@@ -256,13 +267,14 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         positions = np.zeros((self.n_class, 3))
         rotations = np.zeros((self.n_class, 3, 3))
 
-        min_z = 0.5
+        min_z = 0.3
         max_z = 1.5
         edge_offset = 5
         for ii in six.moves.range(min_obj_num):
             target_obj = obj_ind[ii]
             obj_order = np.where(self.objs==target_obj)[0][0]
-            im_id = np.random.choice(self.idx_dict[1][self.idx_dict[0] == target_obj], 1)[0]
+            # im_id = np.random.choice(self.idx_dict[1][self.idx_dict[0] == target_obj], 1)[0]
+            im_id = self.order[target_obj][i]
             rgb, depth = self._load_images(target_obj, im_id)
             pos, rot = self._load_pose(target_obj, im_id)
             mask = self._load_mask(target_obj, im_id)
@@ -331,6 +343,13 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
 
         ## ignore nan
         # label[np.isnan(pc[0]) * (label == 0)] = -1
+
+        if self.iter_cnt >= self.min_len:
+            self._set_order()
+            self.iter_cnt=0
+        else:
+            self.iter_cnt +=1
+
         return img_rgb, label.astype(np.int32), img_depth, img_cp, img_ocp, positions, rotations, pc, obj_mask.astype(np.int32), nonnan_mask, K
 
 
@@ -490,7 +509,7 @@ class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
                  mode='test',
                  interval=1,
                  resize_rate = 0.5,
-                 iteration_per_epoch=1000,
+                 iteration_per_epoch=2000,
                  render=False,
                  metric_filter=1.0):
 
@@ -506,7 +525,7 @@ class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
                                                                   interval=interval,
                                                                   resize_rate = resize_rate,
                                                                   random_iteration=random_iteration,
-                                                                  iteration_per_epoch=iteration_per_epoch,
+                                                                  iteration_per_epoch=iteration_per_epoch // 2,
                                                                   bg_flip=bg_flip,
                                                                   channel_swap = channel_swap,
                                                                   metric_filter=metric_filter)
@@ -521,7 +540,7 @@ class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
                                                                  contrast=contrast,
                                                                  resize_rate = resize_rate,
                                                                  random_iteration=random_iteration,
-                                                                 iteration_per_epoch=iteration_per_epoch,
+                                                                 iteration_per_epoch=iteration_per_epoch // 2,
                                                                  bg_flip=bg_flip,
                                                                  channel_swap = channel_swap,
                                                                  metric_filter=metric_filter)
@@ -546,13 +565,13 @@ class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
         self.iteration_per_epoch = iteration_per_epoch
 
     def __len__(self):
-        return self.iteration_per_epoch
+        return self.auto_context_dataset.__len__() + self.rendering_dataset.__len__()
 
     def get_example(self, idx):
-        if np.random.randint(0, 2):
+        if idx < self.auto_context_dataset.__len__():
             return self.auto_context_dataset.get_example(idx)
         else:
-            return self.rendering_dataset.get_example(idx)
+            return self.rendering_dataset.get_example(idx - self.auto_context_dataset.__len__())
 
 
 class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
