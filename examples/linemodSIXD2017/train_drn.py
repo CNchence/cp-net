@@ -74,7 +74,7 @@ def main():
                         help='Interval of displaying log to console')
     parser.add_argument('--frequency', '-f', type=int, default=-1,
                         help='Frequency of taking a snapshot')
-    parser.add_argument('--train_resnet', type=bool, default=False,
+    parser.add_argument('--train_res5', type=bool, default=True,
                         help='train resnet')
     parser.add_argument('--train-resnet', dest='train_resnet', action='store_true')
     parser.set_defaults(train_resnet=False)
@@ -116,7 +116,7 @@ def main():
     if use_psp:
         model = DualCPNetworkPSPNetBase(n_class=n_class)
     else:
-        model = DualCPDRN(n_class=n_class)
+        model = DualCPDRN(n_class=n_class, train_res5=args.train_res5)
     model = DualCPNetClassifier(
         model,
         basepath=train_path,
@@ -133,7 +133,8 @@ def main():
     # Setup an optimizer
     optimizer = chainer.optimizers.MomentumSGD(lr=0.01, momentum=0.9)
     optimizer.setup(model)
-
+    optimizer.add_hook(chainer.optimizer.WeightDecay(0.0001))
+    
     # # load train data
     # train = LinemodSIXDAutoContextDataset(train_path, objs, bg_path,
     #                                       gaussian_noise=True,
