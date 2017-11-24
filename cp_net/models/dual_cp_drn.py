@@ -47,7 +47,6 @@ class DualCPDRN(chainer.Chain):
 
         self.mean = mean
         self.n_class = n_class
-        self.train_resnet = train_resnet
 
     def __call__(self, x):
         h = self.trunk(x)

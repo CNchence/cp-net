@@ -171,7 +171,7 @@ class DilatedFCN(chainer.Chain):
 class PretrainedDilatedFCN(chainer.Chain):
 
     def __init__(self, n_blocks, train_res5=False):
-        super(DilatedFCN, self).__init__()
+        super(PretrainedDilatedFCN, self).__init__()
         with self.init_scope():
             self.cbr1_1 = ConvBNReLU(None, 64, 3, 2, 1)
             self.cbr1_2 = ConvBNReLU(64, 64, 3, 1, 1)
