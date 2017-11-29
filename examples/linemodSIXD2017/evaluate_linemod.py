@@ -12,7 +12,7 @@ import quaternion
 from cp_net.models.dual_cp_network_ver2 import DualCenterProposalNetworkRes50_predict7
 from datasets.linemod_sixd2017_single_instance import LinemodSIXDSingleInstanceDataset
 
-from cp_net.pose_estimation_interface import SimplePoseEstimationInterface
+from cp_net.pose_estimation_interface import SimplePoseEstimationInterface, PoseEstimationInterface
 from cp_net.utils import inout
 
 import tqdm
@@ -33,11 +33,11 @@ def main():
     delta = 0.015 # [m]
     objs = np.arange(15) + 1
     n_class = len(objs) + 1
-    distance_sanity = 0.05
+    distance_sanity = 0.02
     min_distance= 0.005
     output_scale = 0.14
     prob_eps = 0.4
-    eps = 0.05
+    eps = 0.02
     im_size=(640, 480)
     interval = 15
 
@@ -59,18 +59,26 @@ def main():
         model.to_gpu()
 
     # pose estimator instance
-    pei = SimplePoseEstimationInterface(distance_sanity=distance_sanity,
-                                        base_path=data_path,
-                                        min_distance=min_distance, eps=eps, im_size=im_size)
+    # pei = SimplePoseEstimationInterface(distance_sanity=distance_sanity,
+    #                                     base_path=data_path,
+    #                                     min_distance=min_distance, eps=prob_eps, im_size=im_size)
+    pei = PoseEstimationInterface(objs= ['obj_{0:0>2}'.format(i) for i in objs],
+                                  base_path=data_path,
+                                  distance_sanity=distance_sanity,
+                                  model_scale = 1000.0,
+                                  min_distance=min_distance, eps=prob_eps, im_size=im_size)
     scores_pos = []
     scores_rot = []
+
     for obj_id in objs:
         test = LinemodSIXDSingleInstanceDataset(data_path, obj_id,
                                                 mode='test',
                                                 interval=interval,
                                                 metric_filter=output_scale + eps)
         im_ids = test.__len__()
-        im_ids = 10
+        # im_ids = 10
+        detect_cnt = 0
+        cnt_5cm5deg = 0
         sum_pos = 0
         sum_rot = 0
         for im_id in tqdm.trange(im_ids):
@@ -95,11 +103,15 @@ def main():
                     quat_w = min(1, abs(quat.w))
                     diff_angle = np.rad2deg(np.arccos(quat_w)) * 2
                     # print "obj_{0:0>2} : position_diff = {1}, rotation_diff = {2}".format(i + 1, pos_diff, diff_angle)
-                    if i + 1 == obj_id:
+                    if i + 1 == obj_id and pos_diff < 1.0:
                         sum_pos += pos_diff
                         sum_rot += diff_angle
+                        detect_cnt += 1
+                        if  pos_diff < 0.05 and diff_angle < 5:
+                            cnt_5cm5deg +=1
 
-        print "obj_{0:0>2} : position_diff = {1}, rotation_diff = {2}".format(obj_id, sum_pos / im_ids, sum_rot / im_ids)
+        print "obj_{0:0>2} : detection_rate = {1}, position_diff = {2}, rotation_diff = {3}, 5cm5deg = {4}" \
+            .format(obj_id, detect_cnt / (1.0 * im_ids), sum_pos / detect_cnt, sum_rot / detect_cnt, cnt_5cm5deg / (1.0 * im_ids))
         scores_pos.append(sum_pos / im_ids)
         scores_rot.append(sum_rot / im_ids)
 

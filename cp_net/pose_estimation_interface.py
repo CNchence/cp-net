@@ -16,16 +16,59 @@ import cv2
 import pose_estimation
 
 
+def calc_rot_by_svd(Y, X):
+    U, S, V = np.linalg.svd(np.dot(Y, X.T))
+    VU_det = np.linalg.det(np.dot(V, U))
+    H = np.diag(np.array([1, 1, VU_det], dtype=np.float64))
+    R = np.dot(np.dot(U, H), V)
+    return R
+
+
+def icp(a, b, dst_search_idx=None, n_iter=100, thre_precent=95):
+    # input src shape = (3, num)
+    # input dst shape = (3, num)
+
+    ## pyflann search index build
+    pyflann.set_distance_type('euclidean')
+    if dst_search_idx is None:
+        search_idx = pyflann.FLANN()
+        search_idx.build_index(b.transpose(1, 0), algorithm='kmeans',
+                               centers_init='kmeanspp', random_seed=1234)
+    else:
+        search_idx = dst_search_idx
+
+    ## intialize for iteration
+    _t = np.zeros(3)
+    _R = np.diag((1, 1, 1))
+    old_a = a.copy()
+
+    for i in six.moves.range(n_iter):
+        indices, distances = search_idx.nn_index(old_a.transpose(1, 0),  1)
+        # percentile outlier removal
+        percentile_thre = np.percentile(distances, thre_precent)
+        inlier_mask = (distances <= percentile_thre)
+
+        b_mean = np.mean(b[:, indices[inlier_mask]], axis=1)
+        b_demean = b[:, indices[inlier_mask]] - b_mean[:, np.newaxis]
+
+        a_mean = np.mean(a[:, inlier_mask], axis=1)
+        a_demean = a[:, inlier_mask] - a_mean[:, np.newaxis]
+
+        _R = calc_rot_by_svd(b_demean, a_demean)
+        _t = b_mean - np.dot(_R, a_mean)
+        new_a = np.dot(_R, a) + _t[:, np.newaxis]
+
+        if np.mean(np.abs(new_a - old_a)) < 1e-12:
+            break
+        old_a = new_a
+    return _t, _R
+
+
 class SimplePoseEstimationInterface(object):
     ## Support multi-class, one instance per one class
     def __init__(self, eps=0.2,
                  distance_sanity=0.1, min_distance=0.005,
                  base_path = 'OcclusionChallengeICCV2015',
-                 objs =['Ape', 'Can', 'Cat', 'Driller', 'Duck', 'Eggbox', 'Glue', 'Holepuncher'],
-                 model_partial= 1,
-                 K =  np.array([[572.41140, 0, 325.26110],
-                                [0, 573.57043, 242.04899],
-                                [0, 0, 0]]),
                  im_size = (640, 480)):
         self.eps = eps
         self.distance_sanity = distance_sanity
@@ -116,7 +159,7 @@ class SimplePoseEstimationInterface(object):
         return estimated_ocp, estimated_R
 
 
-class PoseEstimationInterface(object):
+class PoseEstimationInterface(SimplePoseEstimationInterface):
     ## Support multi-class, one instance per one class
     def __init__(self, eps=0.2,
                  distance_sanity=0.1, min_distance=0.005,
@@ -124,48 +167,48 @@ class PoseEstimationInterface(object):
                  mseh_basepath = None,
                  objs =['Ape', 'Can', 'Cat', 'Driller', 'Duck', 'Eggbox', 'Glue', 'Holepuncher'],
                  model_partial= 1,
-                 K =  np.array([[572.41140, 0, 325.26110],
-                               [0, 573.57043, 242.04899],
-                               [0, 0, 0]]),
+                 model_scale= 1.0,
                  n_ransac=100,
                  im_size = (640, 480)):
-        super.__init__(eps, distance_sanity, min_distance, base_path,
-                 objs, model_partial, K, im_size)
-        # ## for flann
-        # self.flann_search_idx = []
-        # self.models_pc = []
-        # self.objs = objs
-        # pyflann.set_distance_type('euclidean')
-        # for obj_name in objs:
-        #     pc = pypcd.PointCloud.from_path(
-        #         os.path.join(base_path, 'models_pcd', obj_name + '.pcd'))
-        #     pc = np.asarray(pc.pc_data.tolist())[:,:3] ## only use xyz
+        super(PoseEstimationInterface, self).__init__(eps, distance_sanity, min_distance, base_path, im_size)
+        ## for flann
+        self.flann_search_idx = []
+        self.models_pc = []
+        self.objs = objs
+        pyflann.set_distance_type('euclidean')
+        for obj_name in objs:
+            pc = pypcd.PointCloud.from_path(
+                os.path.join(base_path, 'models_pcd', '{}.pcd'.format(obj_name)))
+            pc = np.asarray(pc.pc_data.tolist())[:, [0, 1, 2]] / model_scale ## only use xyz
 
-        #     search_idx = pyflann.FLANN()
-        #     search_idx.build_index(pc[0::model_partial, :], algorithm='kmeans',
-        #                            centers_init='kmeanspp', random_seed=1234)
-        #     self.flann_search_idx.append(search_idx)
-        #     self.models_pc.append(pc)
+            search_idx = pyflann.FLANN()
+            search_idx.build_index(pc[0::model_partial, :], algorithm='kmeans',
+                                   centers_init='kmeanspp', random_seed=1234)
+            self.flann_search_idx.append(search_idx)
+            self.models_pc.append(pc)
 
         # for Cypose_estimator
-        self.mesh_pathes = []
-        for obj_name in objs:
-            if mesh_basepath is None:
-                mesh_path = os.path.join(base_path, 'models_ply', obj_name + '.ply')
-            else:
-                mesh_path = os.path.join(mesh_basepath,  obj_name + '.ply')
-            self.mesh_pathes.append(mesh_path)
+        # self.mesh_pathes = []
+        # for obj_name in objs:
+        #     if mesh_basepath is None:
+        #         mesh_path = os.path.join(base_path, 'models_ply', obj_name + '.ply')
+        #     else:
+        #         mesh_path = os.path.join(mesh_basepath,  obj_name + '.ply')
+        #     self.mesh_pathes.append(mesh_path)
 
-        self.pose_estimator = pose_estimation.CyPoseEstimator(self.mesh_pathes,
-                                                              im_size[1], im_size[0])
-        self.pose_estimator.set_ransac_count(n_ransac)
+        # self.pose_estimator = pose_estimation.CyPoseEstimator(self.mesh_pathes,
+        #                                                       im_size[1], im_size[0])
+        # self.pose_estimator.set_ransac_count(n_ransac)
 
     def execute(self, y_cls, y_cp, y_ocp, depth, K):
         n_class = y_cls.shape[0]
         pred_mask, y_cp_reshape, t_pc_reshape, y_ocp_reshape = self.pre_processing(y_cls, y_cp, y_ocp, depth, K)
 
-        self.pose_estimator.set_depth(depth)
-        self.pose_estimator.set_k(K)
+        estimated_ocp = np.ones((n_class - 1, 3)) * 10
+        estimated_R = np.zeros((n_class - 1, 3, 3))
+
+        # self.pose_estimator.set_depth(depth)
+        # self.pose_estimator.set_k(K)
         for i_c in six.moves.range(n_class - 1):
             if np.sum(pred_mask[i_c]) < 10:
                 continue
@@ -173,24 +216,37 @@ class PoseEstimationInterface(object):
             y_cp_nonzero = y_cp_reshape[:, pmask]
             y_cp_mean = np.mean(y_cp_nonzero, axis=1, keepdims=True)
             ## Remove outlier direct Center Point
-            cp_mask3d = (y_cp_nonzero - y_cp_mean < 0.1)
+            cp_mask3d = (y_cp_nonzero - y_cp_mean < 0.05)
             cp_mask = (np.sum(cp_mask3d, axis=0) == 3)
-            ## flann refinement
-            num_nn = 2
-            flann_ret, flann_dist = self.flann_search_idx[i_c].nn_index(y_ocp_reshape[:, pmask].transpose(1, 0), num_nn)
-            flann_ret_unique = np.unique(flann_ret.ravel())
-            flann_mask = (flann_dist[:, 0] < 5e-3)
-            refine_mask = cp_mask * flann_mask
-            if np.sum(refine_mask) < 10:
+            if np.sum(cp_mask) < 10:
                 continue
-            t_pc_nonzero = t_pc_reshape[:, pmask][:, refine_mask]
-            y_ocp_nonzero = y_ocp_reshape[:, pmask][:, refine_mask]
+            t_pc_nonzero = t_pc_reshape[:, pmask][:, cp_mask]
+            y_ocp_nonzero = y_ocp_reshape[:, pmask][:, cp_mask]
 
-            self.pose_estimator.set_mask(pred_mask[i_c])
-            self.pose_estimator.set_object_id(i_c)
-            ret_ocp, ret_R = self.pose_estimator.ransac_estimation(t_pc_nonzero, y_ocp_nonzero)
+            # self.pose_estimator.set_mask(pred_mask[i_c])
+            # self.pose_estimator.set_object_id(i_c)
+            # ret_ocp, ret_R = self.pose_estimator.ransac_estimation(t_pc_nonzero, y_ocp_nonzero)
 
-            estimated_ocp[i_c] =  ret_ocp
-            estimated_R[i_c] = ret_R
+            ret_ocp, ret_R = pose_estimation.simple_ransac_estimation_cpp(t_pc_nonzero, y_ocp_nonzero)
+            icp_ocp, icp_R = icp(np.dot(ret_R.T, t_pc_nonzero - ret_ocp[:, np.newaxis]),
+                                 self.models_pc[i_c].transpose(1,0),
+                                 dst_search_idx=self.flann_search_idx[i_c])
+            icp_R = np.dot(ret_R, icp_R.T)
+            icp_ocp = ret_ocp - np.dot(ret_R, icp_ocp)
+            # quat = quaternion.from_rotation_matrix(icp_R)
+            # quat_w = min(1, abs(quat.w))
+            # diff_angle = np.rad2deg(np.arccos(quat_w)) * 2
+            # print "obj_{0} icp refinement : {1}".format(i_c + 1, diff_angle)
+            # print icp_ocp, icp_R
+            # ret_R = np.dot(ret_R, icp_R.T)
+            # ret_ocp -= np.dot(ret_R, icp_ocp)
+            # if i_c == 6:
+            #     np.save("t_pc.npy", np.dot(ret_R.T, t_pc_nonzero - ret_ocp[:, np.newaxis]))
+            #     np.save("t_icp.npy", np.dot(icp_R.T, t_pc_nonzero - icp_ocp[:, np.newaxis]))
+            #     np.save("model.npy", self.models_pc[i_c].transpose(1,0))
+            # estimated_ocp[i_c] =  ret_ocp
+            # estimated_R[i_c] = ret_R
+            estimated_ocp[i_c] =  icp_ocp
+            estimated_R[i_c] = icp_R
 
         return estimated_ocp, estimated_R
