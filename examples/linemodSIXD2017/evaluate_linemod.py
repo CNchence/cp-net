@@ -66,17 +66,20 @@ def main():
                                   base_path=data_path,
                                   distance_sanity=distance_sanity,
                                   model_scale = 1000.0,
+                                  model_partial= 1,
                                   min_distance=min_distance, eps=prob_eps, im_size=im_size)
     scores_pos = []
     scores_rot = []
-
-    for obj_id in objs:
+    ids_arr = []
+    scores_5cm5deg = []
+    test_objs = np.delete(np.arange(15) + 1, [2, 6])
+    for obj_id in test_objs:
         test = LinemodSIXDSingleInstanceDataset(data_path, obj_id,
                                                 mode='test',
                                                 interval=interval,
                                                 metric_filter=output_scale + eps)
         im_ids = test.__len__()
-        # im_ids = 10
+        # im_ids = 50
         detect_cnt = 0
         cnt_5cm5deg = 0
         sum_pos = 0
@@ -95,7 +98,7 @@ def main():
                     y_cp = chainer.cuda.to_cpu(y_cp_d.data)[0]
                     y_ocp = chainer.cuda.to_cpu(y_ocp_d.data)[0]
 
-            y_pos, y_rot = pei.execute(y_cls, y_cp * output_scale, y_ocp * output_scale, img_depth, K)
+            y_pos, y_rot = pei.execute(y_cls, y_cp * output_scale, y_ocp * output_scale, img_depth, K, estimate_idx = [obj_id - 1])
             for i in six.moves.range(n_class - 1):
                 if np.sum(pos[i]) != 0 and  np.sum(rot[i]) != 0:
                     pos_diff = np.linalg.norm(y_pos[i] - pos[i])
@@ -114,11 +117,17 @@ def main():
             .format(obj_id, detect_cnt / (1.0 * im_ids), sum_pos / detect_cnt, sum_rot / detect_cnt, cnt_5cm5deg / (1.0 * im_ids))
         scores_pos.append(sum_pos / im_ids)
         scores_rot.append(sum_rot / im_ids)
+        scores_5cm5deg.append(cnt_5cm5deg)
+        ids_arr.append(im_ids)
 
 
     print "-- results --"
     print scores_pos
     print scores_rot
+    print "-- total results --"
+    ids_arr = np.asarray(ids_arr)
+    scores_5cm5deg = np.asarray(scores_5cm5deg)
+    print "5cm5deg ratio : {}".format(np.sum(scores_5cm5deg) / (1.0 * np.sum(ids_arr)))
 
 if __name__ == '__main__':
     main()

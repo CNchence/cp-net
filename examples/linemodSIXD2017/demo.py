@@ -22,7 +22,7 @@ from cp_net.models.dual_cp_network_ver2 import DualCenterProposalNetworkRes50_pr
 from cp_net.classifiers.dual_cp_classifier import DualCPNetClassifier
 from datasets.linemod_sixd2017 import LinemodSIXDAutoContextDataset, LinemodSIXDExtendedDataset
 
-from cp_net.pose_estimation_interface import SimplePoseEstimationInterface
+from cp_net.pose_estimation_interface import SimplePoseEstimationInterface, PoseEstimationInterface
 from cp_net.utils import renderer
 from cp_net.utils import inout
 
@@ -60,7 +60,7 @@ def main():
     obj_models = []
     for obj in objs:
         if obj != 'background':
-            print 'Loading data:', obj
+            print 'Loading data: obj_{0}'.format(obj)
             obj_model_fpath = obj_model_fpath_mask.format(obj)
             obj_models.append(inout.load_ply(obj_model_fpath))
 
@@ -77,13 +77,21 @@ def main():
                                       interval=interval,
                                       metric_filter=output_scale + eps)
 
-    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(16, 10))
+    fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(16, 10))
     im_ids = range(test.__len__())
 
     # pose estimator instance
-    pei = SimplePoseEstimationInterface(distance_sanity=distance_sanity,
-                                        base_path=data_path,
-                                        min_distance=min_distance, eps=eps, im_size=im_size)
+    # pei = SimplePoseEstimationInterface(distance_sanity=distance_sanity,
+    #                                     base_path=data_path,
+    #                                     min_distance=min_distance, eps=eps, im_size=im_size)
+
+    pei = PoseEstimationInterface(objs= ['obj_{0:0>2}'.format(i) for i in objs],
+                                  base_path=data_path,
+                                  distance_sanity=distance_sanity,
+                                  model_scale = 1000.0,
+                                  model_partial= 1,
+                                  min_distance=min_distance, eps=prob_eps, im_size=im_size)
+
     imagenet_mean = np.array(
         [103.939, 116.779, 123.68], dtype=np.float32)[np.newaxis, np.newaxis, :]
     colors= ('grey', 'red', 'blue', 'yellow', 'magenta', 'green', 'indigo', 'darkorange', 'cyan', 'pink',
@@ -131,6 +139,10 @@ def main():
         cls_vis = cls_mask * alpha + gray * (1 - alpha)
         cls_vis = (cls_vis * 255).astype(np.uint8)
 
+        pose_vis_gt = (gray.copy() * 255).astype(np.uint8)
+        pose_vis_pred = (gray.copy() * 255).astype(np.uint8)
+        vis_render = True
+
         for i in six.moves.range(n_class - 1):
             if np.sum(pos[i]) != 0 and  np.sum(rot[i]) != 0:
                 pos_diff = np.linalg.norm(y_pos[i] - pos[i])
@@ -138,6 +150,22 @@ def main():
                 quat_w = min(1, abs(quat.w))
                 diff_angle = np.rad2deg(np.arccos(quat_w)) * 2
                 print "obj_{0:0>2} : position_diff = {1}, rotation_diff = {2}".format(i + 1, pos_diff, diff_angle)
+
+            if not vis_render:
+                continue
+            # Render the object model
+            if np.sum(rot[i]) != 0:
+                ren_gt = renderer.render(
+                    obj_models[i], (im_size[0] / 2, im_size[1] / 2),  K,
+                    rot[i], (pos[i].T * 1000), 100, 4000, mode='rgb+depth')
+                mask = np.logical_and((ren_gt[1] != 0), np.logical_or((ren_gt[1] / 1000.0 < img_depth + render_eps), (img_depth == 0)))
+                pose_vis_gt[mask, :] = ren_gt[0][mask]
+            if np.sum(y_rot[i]) != 0:
+                ren_pred = renderer.render(
+                    obj_models[i], (im_size[0] / 2, im_size[1] / 2), K, y_rot[i],
+                    (y_pos[i].T * 1000), 100, 4000, mode='rgb+depth')
+                mask = np.logical_and((ren_pred[1] != 0), np.logical_or((ren_pred[1] / 1000.0 < img_depth + render_eps), (img_depth == 0)))
+                pose_vis_pred[mask, :]  = ren_pred[0][mask]
 
         # Clear axes
         for ax in axes.flatten():
@@ -150,11 +178,15 @@ def main():
         axes[1, 0].set_title('class gt')
         axes[1, 1].imshow(cls_vis)
         axes[1, 1].set_title('class pred')
+        axes[2, 0].imshow(pose_vis_gt)
+        axes[2, 0].set_title('pose gt vis')
+        axes[2, 1].imshow(pose_vis_pred)
+        axes[2, 1].set_title('pose pred vis')
 
         fig.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95, hspace=0.15, wspace=0.15)
         plt.draw()
-        # # plt.pause(0.01)
-        plt.waitforbuttonpress()
+        plt.pause(0.01)
+        # plt.waitforbuttonpress()
 
 
 if __name__ == '__main__':
