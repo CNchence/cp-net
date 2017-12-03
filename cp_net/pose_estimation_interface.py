@@ -12,6 +12,7 @@ import chainer.functions as F
 from chainer.utils import type_check
 
 import cv2
+from sklearn import cluster
 
 import pose_estimation
 
@@ -200,28 +201,41 @@ class PoseEstimationInterface(SimplePoseEstimationInterface):
         #                                                       im_size[1], im_size[0])
         # self.pose_estimator.set_ransac_count(n_ransac)
 
-    def execute(self, y_cls, y_cp, y_ocp, depth, K):
+    def execute(self, y_cls, y_cp, y_ocp, depth, K, estimate_idx=None):
+        if estimate_idx == None:
+            estimate_idx = np.arange(len(self.objs))
         n_class = y_cls.shape[0]
         pred_mask, y_cp_reshape, t_pc_reshape, y_ocp_reshape = self.pre_processing(y_cls, y_cp, y_ocp, depth, K)
 
         estimated_ocp = np.ones((n_class - 1, 3)) * 10
         estimated_R = np.zeros((n_class - 1, 3, 3))
 
+        dbscan = cluster.DBSCAN(eps=0.01)
+
         # self.pose_estimator.set_depth(depth)
         # self.pose_estimator.set_k(K)
         for i_c in six.moves.range(n_class - 1):
+            if not i_c in estimate_idx:
+                continue
             if np.sum(pred_mask[i_c]) < 10:
                 continue
             pmask = pred_mask[i_c].ravel().astype(np.bool)
             y_cp_nonzero = y_cp_reshape[:, pmask]
+
+            dbscan.fit(y_cp_nonzero.transpose(1,0))
+            lbls = dbscan.labels_.astype(np.int32)
+            max_lbl = np.argmax(np.bincount(lbls + 1))
+            cp_mask = (lbls == max_lbl - 1)
+
             y_cp_mean = np.mean(y_cp_nonzero, axis=1, keepdims=True)
             ## Remove outlier direct Center Point
             cp_mask3d = (y_cp_nonzero - y_cp_mean < 0.05)
-            cp_mask = (np.sum(cp_mask3d, axis=0) == 3)
+            cp_mask = cp_mask * (np.sum(cp_mask3d, axis=0) == 3)
             if np.sum(cp_mask) < 10:
                 continue
             t_pc_nonzero = t_pc_reshape[:, pmask][:, cp_mask]
             y_ocp_nonzero = y_ocp_reshape[:, pmask][:, cp_mask]
+            y_cp_nonzero = y_cp_reshape[:, pmask][:, cp_mask]
 
             # self.pose_estimator.set_mask(pred_mask[i_c])
             # self.pose_estimator.set_object_id(i_c)
@@ -232,7 +246,7 @@ class PoseEstimationInterface(SimplePoseEstimationInterface):
                                  self.models_pc[i_c].transpose(1,0),
                                  dst_search_idx=self.flann_search_idx[i_c])
             icp_R = np.dot(ret_R, icp_R.T)
-            icp_ocp = ret_ocp - np.dot(ret_R, icp_ocp)
+            icp_ocp = ret_ocp - np.dot(icp_R, icp_ocp)
             # quat = quaternion.from_rotation_matrix(icp_R)
             # quat_w = min(1, abs(quat.w))
             # diff_angle = np.rad2deg(np.arccos(quat_w)) * 2
@@ -240,8 +254,10 @@ class PoseEstimationInterface(SimplePoseEstimationInterface):
             # print icp_ocp, icp_R
             # ret_R = np.dot(ret_R, icp_R.T)
             # ret_ocp -= np.dot(ret_R, icp_ocp)
-            # if i_c == 6:
+            # if i_c == 12:
+            #     print "save npy!"
             #     np.save("t_pc.npy", np.dot(ret_R.T, t_pc_nonzero - ret_ocp[:, np.newaxis]))
+            #     np.save("cp.npy", y_cp_nonzero)
             #     np.save("t_icp.npy", np.dot(icp_R.T, t_pc_nonzero - icp_ocp[:, np.newaxis]))
             #     np.save("model.npy", self.models_pc[i_c].transpose(1,0))
             # estimated_ocp[i_c] =  ret_ocp
