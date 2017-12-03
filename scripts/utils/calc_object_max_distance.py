@@ -11,7 +11,7 @@ def main():
     parser.add_argument('model_path')
     args = parser.parse_args()
     model_path = args.model_path
-    paths = glob.glob(os.path.join(model_path, "*.ply"))
+    paths = sorted(glob.glob(os.path.join(model_path, "*.ply")))
     max_axis_dist = np.zeros(3)
     for path in paths:
         model = pyassimp.core.load(path)
@@ -23,6 +23,7 @@ def main():
         print "----"
         print "object path : {}".format(path)
         print "max coordinates axis distances: {}".format(max_obj_dist)
+        print "max distances: {}".format(np.max(max_obj_dist))
         max_axis_dist = np.max(np.vstack((max_axis_dist, max_obj_dist)),axis=0)
     print "-- results --"
     print "max distances: {}".format(max_axis_dist)
