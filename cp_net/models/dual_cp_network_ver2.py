@@ -36,9 +36,13 @@ class DualCenterProposalNetworkRes50_predict7(chainer.Chain):
             concat_conv = L.Convolution2D(512 * 3, 512 * 3, 3, stride=1, pad=1),
             bn_concat = L.BatchNormalization(512 * 3),
 
-            score_pool = L.Convolution2D(512 * 3, n_class, 1, stride=1, pad=0),
-
-            upscore_final=L.Deconvolution2D(self.n_class, self.n_class, 8, stride=4, pad=2),
+            # score_pool = L.Convolution2D(512 * 3, 512, 3, stride=1, pad=1),
+            score_conv = L.Convolution2D(512 * 3, 512, 3, stride=1, pad=1),
+            bn_cls1 = L.BatchNormalization(512),
+            upscore_final1=L.Deconvolution2D(512, 256, 4, stride=2, pad=1),
+            bn_cls2 = L.BatchNormalization(256),
+            upscore_final2=L.Deconvolution2D(256, self.n_class, 4, stride=2, pad=1),
+            # upscore_final=L.Deconvolution2D(256, self.n_class, 8, stride=4, pad=2),
 
             conv_cp1 = L.Convolution2D(512 * 3, 1024, 3, stride=1, pad=1),
             bn_cp1 = L.BatchNormalization(1024),
@@ -83,13 +87,17 @@ class DualCenterProposalNetworkRes50_predict7(chainer.Chain):
         # concat conv
         h = concat.concat((upscore1, upscore2, pool1_8), axis=1)
         h = F.relu(self.bn_concat(self.concat_conv(h)))
-        concat_pool = h
+        concat_pool = F.dropout(h, ratio=0.1)
 
         # score
-        h = F.elu(self.score_pool(concat_pool))
-        score1_8 = h
-        h = F.relu(self.upscore_final(h))
-        score = h  # 1/1
+        h_cls = F.relu(self.bn_cls1(self.score_conv(h)))
+        h_cls = F.elu(self.bn_cls2(self.upscore_final1(h_cls)))
+        h_cls = self.upscore_final2(h_cls)
+        score = h_cls
+        # h = F.elu(self.score_pool(concat_pool))
+        # score1_8 = h
+        # h = F.relu(self.upscore_final(h))
+        # score = h  # 1/1
 
         pool1_4 = F.relu(self.bn_pool(self.pool_conv(pool1_4)))
 

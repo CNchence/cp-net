@@ -4,21 +4,23 @@ import numpy as np
 import cv2
 
 
-def add_noise(src, sigma=5):
-    src_tmp = src.copy()
+def add_noise(src, sigma=10):
     row,col,ch = src.shape
     mean = 0.0
     gauss = np.random.normal(mean, sigma, (row,col,ch))
     gauss = gauss.reshape(row,col,ch)
     gauss_img = src + gauss
-    gauss_img[gauss_img > 255] = 255
-    gauss_img[gauss_img < 0] = 0
     return gauss_img.astype(np.uint8)
 
 def avaraging(src, ksize=5):
     average_square = (ksize, ksize)
     return cv2.blur(src, average_square)
 
+def gaussian_blur(src, ksize=5):
+    return cv2.GaussianBlur(src, (ksize, ksize), 0)
+
+def bilateral_filter(src):
+    return cv2.bilateralFilter(src, 5, 75, 75)
 
 def gamma_augmentation(src, gamma=0.75):
     LUT = np.arange(256, dtype = 'uint8' )
