@@ -170,12 +170,12 @@ def main():
                                       metric_filter=output_scale + eps)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
-    test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
-                                                 repeat=False, shuffle=False)
+    # test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
+    #                                              repeat=False, shuffle=False)
 
     # train_iter = chainer.iterators.MultiprocessIterator(train, args.batchsize)
-    # test_iter = chainer.iterators.MultiprocessIterator(test, args.batchsize,
-    #                                                    repeat=False, shuffle=False)
+    test_iter = chainer.iterators.MultiprocessIterator(test, args.batchsize,
+                                                       repeat=False, shuffle=False)
 
 
     updater = training.StandardUpdater(train_iter, optimizer, device=args.gpu)
