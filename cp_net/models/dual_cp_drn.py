@@ -33,7 +33,7 @@ class DualCPDRN(chainer.Chain):
 
         with self.init_scope():
             self.input_size = input_size
-            self.trunk = pspnet.PretrainedDilatedFCN(n_blocks=n_blocks, train_res5=train_res5)
+            self.trunk = pspnet.DilatedFCN(n_blocks=n_blocks, train_res5=train_res5)
             # Main branch
             self.cbr_main = pspnet.ConvBNReLU(2048, 512, 3, 1, 1)
             self.out_main = L.Convolution2D(
@@ -45,6 +45,7 @@ class DualCPDRN(chainer.Chain):
             self.out_ocp = L.Convolution2D(
                 512, (n_class - 1) * 3, 1, 1, 0, False)
 
+        self.trunk.disable_update()
         self.mean = mean
         self.n_class = n_class
 

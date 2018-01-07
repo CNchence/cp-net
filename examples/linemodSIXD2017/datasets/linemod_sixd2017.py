@@ -39,6 +39,7 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
                  interval=1,
                  resize_rate = 0.5,
                  load_poses=True,
+                 output_scale=None,
                  metric_filter=1.0):
 
         if objs_indices is None:
@@ -59,6 +60,7 @@ class LinemodSIXDDataset(dataset.DatasetMixin):
         self.avaraging = avaraging
         self.salt_pepper_noise =salt_pepper_noise
         self.contrast = contrast
+        self.output_scale=output_scale
         if self.contrast:
             self.contrast_server = preprocess_utils.ContrastAugmentation()
 
@@ -164,6 +166,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                  resize_rate = 0.5,
                  iteration_per_epoch=1000,
                  load_poses=True,
+                 output_scale=None,
                  metric_filter=1.0):
 
         super(LinemodSIXDAutoContextDataset, self).__init__(path, objs_indices,
@@ -177,6 +180,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                                                             dataset=dataset,
                                                             interval=interval,
                                                             resize_rate = resize_rate,
+                                                            output_scale=output_scale,
                                                             load_poses=load_poses,
                                                             metric_filter=metric_filter)
 
@@ -326,6 +330,10 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         pc = self._get_pointcloud(img_depth, K, fill_nan=True).transpose(2,0,1)
         obj_mask = (obj_mask * nonnan_mask).astype(np.float32)
 
+        if self.output_scale is not None:
+                img_cp = img_cp / self.output_scale[:, :, np.newaxis, np.newaxis]
+                img_ocp = img_ocp / self.output_scale[:, :, np.newaxis, np.newaxis]
+
         img_cp = img_cp.astype(np.float32)
         img_ocp = img_ocp.astype(np.float32)
 
@@ -349,6 +357,7 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
                  interval=1,
                  resize_rate = 0.5,
                  iteration_per_epoch=1000,
+                 output_scale=None,
                  metric_filter=1.0):
 
         super(LinemodSIXDRenderingDataset, self).__init__(path, objs_indices, background_path,
@@ -365,6 +374,7 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
                                                           iteration_per_epoch=iteration_per_epoch,
                                                           bg_flip=bg_flip,
                                                           channel_swap = channel_swap,
+                                                          output_scale=output_scale,
                                                           load_poses=False,
                                                           metric_filter=metric_filter)
         if models_path is None:
@@ -470,6 +480,10 @@ class LinemodSIXDRenderingDataset(LinemodSIXDAutoContextDataset):
         img_cp = img_cp * obj_mask[:, np.newaxis, :, :].astype(np.bool)
         img_ocp = img_ocp * obj_mask[:, np.newaxis, :, :].astype(np.bool)
 
+        if self.output_scale is not None:
+            img_cp = img_cp / self.output_scale[:, :, np.newaxis, np.newaxis]
+            img_ocp = img_ocp / self.output_scale[:, :, np.newaxis, np.newaxis]
+
         img_cp = img_cp.astype(np.float32)
         img_ocp = img_ocp.astype(np.float32)
 
@@ -491,6 +505,7 @@ class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
                  interval=1,
                  resize_rate = 0.5,
                  iteration_per_epoch=1000,
+                 output_scale=None,
                  render=False,
                  metric_filter=1.0):
 
@@ -508,6 +523,7 @@ class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
                                                                   random_iteration=random_iteration,
                                                                   iteration_per_epoch=iteration_per_epoch,
                                                                   bg_flip=bg_flip,
+                                                                  output_scale=output_scale,
                                                                   channel_swap = channel_swap,
                                                                   metric_filter=metric_filter)
 
@@ -524,6 +540,7 @@ class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
                                                                  iteration_per_epoch=iteration_per_epoch,
                                                                  bg_flip=bg_flip,
                                                                  channel_swap = channel_swap,
+                                                                 output_scale=output_scale,
                                                                  metric_filter=metric_filter)
         else:
             self.rendering_dataset = LinemodSIXDAutoContextDataset(path, objs_indices, background_path,
@@ -540,6 +557,7 @@ class LinemodSIXDCombinedDataset(dataset.DatasetMixin):
                                                                    random_iteration=random_iteration,
                                                                    iteration_per_epoch=iteration_per_epoch,
                                                                    bg_flip=bg_flip,
+                                                                   output_scale=output_scale,
                                                                    channel_swap = channel_swap,
                                                                    metric_filter=metric_filter)
 
@@ -565,6 +583,7 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
                  mode='test',
                  interval=1,
                  resize_rate = 0.5,
+                 output_scale=None,
                  metric_filter=1.0):
         scene_indices = np.array([2]) ## benchvise scene id
         super(LinemodSIXDExtendedDataset, self).__init__(path, scene_indices, objs_indices=objs_indices,
@@ -577,6 +596,7 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
                                                          mode=mode,
                                                          interval=interval,
                                                          resize_rate = resize_rate,
+                                                         output_scale=output_scale,
                                                          metric_filter=metric_filter)
 
     def _load_poses(self, scene_id, im_id):
@@ -642,6 +662,11 @@ class LinemodSIXDExtendedDataset(LinemodSIXDDataset):
             target_obj = self.objs[idx]
             label[obj_mask[idx].astype(np.bool)] = target_obj
             img_ocp[idx] = np.dot(rot[idx].T, - img_cp[idx].reshape(3, -1)).reshape(img_cp[idx].shape)
+
+        if self.output_scale is not None:
+            img_cp = img_cp / self.output_scale[:, :, np.newaxis, np.newaxis]
+            img_ocp = img_ocp / self.output_scale[:, :, np.newaxis, np.newaxis]
+
         img_cp = img_cp.astype(np.float32)
         img_ocp = img_ocp.astype(np.float32)
 

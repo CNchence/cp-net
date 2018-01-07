@@ -12,6 +12,7 @@ class DualCPNetClassifier(link.Chain):
                  basepath='OcclusionChallengeICCV2015',
                  im_size=(640, 480),
                  output_scale=1.0,
+                 lambda1=1e1, lambda2=1e1,
                  compute_class_accuracy = True, compute_pose_accuracy = True):
         super(DualCPNetClassifier, self).__init__(predictor=predictor)
         self.y = None
@@ -25,8 +26,8 @@ class DualCPNetClassifier(link.Chain):
         self.rot_acc = None
         self.eval_rate = None
         self.ignore_label = -1
-        self.lambda1 = 1e1
-        self.lambda2 = 1e1
+        self.lambda1 = lambda1
+        self.lambda2 = lambda2
         self.distance_sanity = distance_sanity
         self.method = method
         self.compute_class_accuracy = compute_class_accuracy

@@ -112,7 +112,8 @@ def main():
     caffe_model = 'ResNet-50-model.caffemodel'
 
     distance_sanity = 0.05
-    output_scale = 0.14
+    metric_thre = 0.14
+    output_scale = np.load("distance_scales.npy") / 1000.0
     eps = 0.05
     interval = 15
 
@@ -121,10 +122,10 @@ def main():
         DualCenterProposalNetworkRes50_predict7(n_class=n_class, pretrained_model= not args.train_resnet),
         basepath=train_path,
         im_size=im_size,
+        lambda1=1e-2, lambda2=1e-2,
         distance_sanity=distance_sanity,
         compute_class_accuracy=compute_class_accuracy,
-        compute_pose_accuracy=compute_pose_accuracy,
-        output_scale=output_scale)
+        compute_pose_accuracy=compute_pose_accuracy)
 
     if args.gpu >= 0:
         chainer.cuda.get_device(args.gpu).use()  # Make a specified GPU current
@@ -145,8 +146,8 @@ def main():
                                        mode='train',
                                        render=False,
                                        interval=interval,
-                                       iteration_per_epoch=1000,
-                                       metric_filter=output_scale + eps)
+                                       output_scale=output_scale,
+                                       metric_filter=metric_thre + eps)
 
     # train = LinemodSIXDAutoContextDataset(train_path, objs, bg_path,
     #                                       gaussian_noise=True,
@@ -167,7 +168,8 @@ def main():
     test = LinemodSIXDExtendedDataset(train_path, objs,
                                       mode='test',
                                       interval=interval,
-                                      metric_filter=output_scale + eps)
+                                      output_scale=output_scale,
+                                      metric_filter=metric_thre + eps)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     # test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
