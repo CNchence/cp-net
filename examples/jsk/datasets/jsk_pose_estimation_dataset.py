@@ -55,15 +55,12 @@ class JSKPoseEstimationDatasetMixin(dataset.DatasetMixin):
             self.n_class = len(objs_indices)
 
         # count number of data
-        self.n_data = []
         self.idx_dict = np.array([[], []])
         for i in six.moves.range(len(self.scenes)):
             n_d = len(glob.glob(os.path.join(path, '{0:0>2}'.format(i + 1), 'rgb', '*.png')))
-            self.n_data.append(n_d)
             self.idx_dict = np.hstack((self.idx_dict,
                                        np.vstack((np.ones(n_d) * self.scenes[i],
                                                   np.arange(n_d)))))
-        self.n_data = np.asarray(self.n_data)
         self.idx_dict = self.idx_dict.astype(np.int32)
         if interval > 1:
             if mode == 'train':
@@ -75,7 +72,7 @@ class JSKPoseEstimationDatasetMixin(dataset.DatasetMixin):
         self.imgaug = ImageAugmenter()
 
     def __len__(self):
-        return np.sum(self.n_data)
+        return len(self.idx_dict[0])
 
     def _load_pose(self, scene_id, im_id):
         pos = np.zeros(3)
@@ -251,9 +248,6 @@ class JSKPoseEstimationAutoContextDataset(JSKPoseEstimationDatasetMixin):
         img_cp = img_cp.astype(np.float32)
         img_ocp = img_ocp.astype(np.float32)
 
-        ## ignore nan
-        label[np.isnan(pc[0]) * (label == 0)] = -1
-
         return img_rgb, label.astype(np.int32), img_depth, img_cp, img_ocp, positions, rotations, pc, obj_mask.astype(np.int32), nonnan_mask, K
 
 
@@ -288,11 +282,10 @@ class JSKPoseEstimationDataset(JSKPoseEstimationDatasetMixin):
         ## point cloud
         pc = self._get_pointcloud(img_depth, K, fill_nan=True).transpose(2,0,1)
         ## mask
-        label = np.zeros((self.out_height, self.out_width))
         nonnan_mask = np.invert(np.isnan(pc[0])).astype(np.float32)
-
-        obj_mask = cv2.resize(mask, (self.out_width, self.out_height))
-        obj_mask = np.expand_dims(obj_mask, axis=2).transpose(2,0,1)
+        mask = cv2.resize(mask.astype(np.float64), (self.out_width, self.out_height),
+                          interpolation=cv2.INTER_NEAREST)
+        obj_mask = np.expand_dims(mask, axis=2).transpose(2,0,1)
         obj_mask = obj_mask * nonnan_mask
 
         img_cp = pos[:, np.newaxis, np.newaxis] - pc[np.newaxis, :, :, :]
@@ -302,17 +295,18 @@ class JSKPoseEstimationDataset(JSKPoseEstimationDatasetMixin):
         img_ocp = np.empty_like(img_cp)
 
         img_ocp = np.dot(rot.T, - img_cp.reshape(3, -1)).reshape(img_cp.shape)
-        img_cp = img_cp.astype(np.float32)
-        img_ocp = img_ocp.astype(np.float32)
 
-        ret_cp = np.zeros((self.n_class + 1, 3, self.out_height, self.out_width))
-        ret_ocp = np.zeros((self.n_class + 1, 3, self.out_height, self.out_width))
-        ret_cp[scene_id] = img_cp
-        ret_ocp[scene_id] = img_ocp
+        ret_cp = np.zeros((self.n_class, 3, self.out_height, self.out_width))
+        ret_ocp = np.zeros((self.n_class, 3, self.out_height, self.out_width))
+        ret_cp[scene_id - 1] = img_cp
+        ret_ocp[scene_id - 1] = img_ocp
+        ret_cp = ret_cp.astype(np.float32)
+        ret_ocp = ret_ocp.astype(np.float32)
 
         ## label
         label = mask * scene_id
         label[np.isnan(pc[0]) * (label == 0)] = -1
+
         return img_rgb, label.astype(np.int32), img_depth, ret_cp, ret_ocp, pos, rot, pc, obj_mask.astype(np.int32), nonnan_mask, K
 
 

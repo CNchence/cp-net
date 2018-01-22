@@ -99,8 +99,8 @@ def main():
     n_class = len(objs) + 1
 
     train_path = os.path.join(os.getcwd(), root, 'train_data/JSK_Objects')
-    # bg_path = os.path.join(os.getcwd(), root, 'train_data/MS_COCO/train2017')
-    bg_path = os.path.join(os.getcwd(), root, 'train_data/VOCdevkit/VOC2012/JPEGImages')
+    bg_path = os.path.join(os.getcwd(), root, 'train_data/MS_COCO/train2017')
+    # bg_path = os.path.join(os.getcwd(), root, 'train_data/VOCdevkit/VOC2012/JPEGImages')
 
     caffe_model = 'ResNet-50-model.caffemodel'
 
@@ -138,16 +138,16 @@ def main():
     test = JSKPoseEstimationDataset(train_path, objs,
                                     mode='test',
                                     interval=interval,
-                                    resize_rate=1.0,
+                                    resize_rate=0.5,
                                     metric_filter=output_scale + eps)
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
-    # test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
-    #                                              repeat=False, shuffle=False)
+    test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
+                                                 repeat=False, shuffle=False)
 
     # train_iter = chainer.iterators.MultiprocessIterator(train, args.batchsize)
-    test_iter = chainer.iterators.MultiprocessIterator(test, args.batchsize,
-                                                       repeat=False, shuffle=False)
+    # test_iter = chainer.iterators.MultiprocessIterator(test, args.batchsize,
+    #                                                    repeat=False, shuffle=False)
 
 
     updater = training.StandardUpdater(train_iter, optimizer, device=args.gpu)
