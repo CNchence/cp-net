@@ -131,15 +131,18 @@ def main():
     # load train data
     train = JSKPoseEstimationAutoContextDataset(train_path, objs, bg_path,
                                                 interval=interval,
-                                                mode='train',
+                                                mode='test',
                                                 resize_rate=0.5)
 
     # load test data
     test = JSKPoseEstimationDataset(train_path, objs,
-                                    mode='test',
+                                    mode='train',
                                     interval=interval,
                                     resize_rate=0.5,
                                     metric_filter=output_scale + eps)
+
+    print "number of train data : ", train.__len__()
+    print "number of test data : ", test.__len__()
 
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,

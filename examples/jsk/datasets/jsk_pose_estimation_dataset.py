@@ -62,6 +62,7 @@ class JSKPoseEstimationDatasetMixin(dataset.DatasetMixin):
                                        np.vstack((np.ones(n_d) * self.scenes[i],
                                                   np.arange(n_d)))))
         self.idx_dict = self.idx_dict.astype(np.int32)
+        print "idx_dict : ", len(self.idx_dict[0])
         if interval > 1:
             if mode == 'train':
                 self.idx_dict = self.idx_dict[:, 0::interval]
@@ -117,7 +118,7 @@ class JSKPoseEstimationDatasetMixin(dataset.DatasetMixin):
 class JSKPoseEstimationAutoContextDataset(JSKPoseEstimationDatasetMixin):
     def __init__(self, path, objs_indices, background_path,
                  img_height=480, img_width=640,
-                 mode='test',
+                 mode='train',
                  interval=1,
                  resize_rate = 0.5,
                  metric_filter=1.0,
@@ -129,6 +130,7 @@ class JSKPoseEstimationAutoContextDataset(JSKPoseEstimationDatasetMixin):
         self.channel_swap = channel_swap
         self.iteration_per_epoch = iteration_per_epoch
         super(JSKPoseEstimationAutoContextDataset, self).__init__(path, objs_indices,
+                                                                  mode=mode,
                                                                   img_height=img_height,
                                                                   img_width=img_width,
                                                                   interval=interval,
@@ -262,6 +264,7 @@ class JSKPoseEstimationDataset(JSKPoseEstimationDatasetMixin):
         super(JSKPoseEstimationDataset, self).__init__(path, scene_indices,
                                                        img_height=img_height,
                                                        img_width=img_width,
+                                                       mode=mode,
                                                        interval=interval,
                                                        resize_rate=resize_rate,
                                                        metric_filter=metric_filter)

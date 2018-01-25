@@ -69,7 +69,7 @@ def main():
         model.to_gpu()
 
     test = JSKPoseEstimationDataset(data_path, objs,
-                                    mode='test',
+                                    mode='train',
                                     interval=interval,
                                     resize_rate=0.5,
                                     metric_filter=output_scale + eps)
@@ -160,24 +160,24 @@ def main():
                 pose_vis_pred[mask, :]  = ren_pred[0][mask]
 
         # Clear axes
-        # for ax in axes.flatten():
-        #     ax.clear()
-        # axes[0, 0].imshow(img_rgb[:,:,::-1].astype(np.uint8))
-        # axes[0, 0].set_title('RGB image')
-        # axes[0, 1].imshow(img_depth)
-        # axes[0, 1].set_title('Depth image')
-        # axes[1, 0].imshow(cls_vis_gt)
-        # axes[1, 0].set_title('class gt')
-        # axes[1, 1].imshow(cls_vis)
-        # axes[1, 1].set_title('class pred')
-        # axes[2, 0].imshow(pose_vis_gt)
-        # axes[2, 0].set_title('pose gt vis')
-        # axes[2, 1].imshow(pose_vis_pred)
-        # axes[2, 1].set_title('pose pred vis')
+        for ax in axes.flatten():
+            ax.clear()
+        axes[0, 0].imshow(img_rgb[:,:,::-1].astype(np.uint8))
+        axes[0, 0].set_title('RGB image')
+        axes[0, 1].imshow(img_depth)
+        axes[0, 1].set_title('Depth image')
+        axes[1, 0].imshow(cls_vis_gt)
+        axes[1, 0].set_title('class gt')
+        axes[1, 1].imshow(cls_vis)
+        axes[1, 1].set_title('class pred')
+        axes[2, 0].imshow(pose_vis_gt)
+        axes[2, 0].set_title('pose gt vis')
+        axes[2, 1].imshow(pose_vis_pred)
+        axes[2, 1].set_title('pose pred vis')
 
-        # fig.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95, hspace=0.15, wspace=0.15)
-        # plt.draw()
-        # # plt.pause(0.01)
+        fig.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95, hspace=0.15, wspace=0.15)
+        plt.draw()
+        plt.pause(0.01)
         # plt.waitforbuttonpress()
 
 
