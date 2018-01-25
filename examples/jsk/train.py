@@ -95,7 +95,7 @@ def main():
     print('')
 
     im_size = (640, 480)
-    objs = np.arange(1) + 1
+    objs = np.arange(3) + 1
     n_class = len(objs) + 1
 
     train_path = os.path.join(os.getcwd(), root, 'train_data/JSK_Objects')
@@ -105,7 +105,7 @@ def main():
     caffe_model = 'ResNet-50-model.caffemodel'
 
     distance_sanity = 0.05
-    output_scale = 0.5
+    output_scale = 0.6
     eps = 0.05
     interval = 15
 
@@ -131,10 +131,17 @@ def main():
     # load train data
     train = JSKPoseEstimationAutoContextDataset(train_path, objs, bg_path,
                                                 interval=interval,
+                                                iteration_per_epoch=1000,
                                                 mode='test',
-                                                resize_rate=0.5)
+                                                resize_rate=0.5,
+                                                metric_filter=output_scale + eps)
 
     # load test data
+    # test = JSKPoseEstimationAutoContextDataset(train_path, objs, bg_path,
+    #                                             interval=interval,
+    #                                             mode='train',
+    #                                             resize_rate=0.5,
+    #                                             metric_filter=output_scale + eps)
     test = JSKPoseEstimationDataset(train_path, objs,
                                     mode='train',
                                     interval=interval,
@@ -176,9 +183,9 @@ def main():
 
     trainer.extend(extensions.PrintReport(
         ['epoch',  'main/l_cls',  'main/l_cp', 'main/l_ocp',
-         'main/cls_acc', 'main/ocp_acc', 'main/rot_acc', 'main/5cm5deg',
+         'main/cls_acc', 'main/ocp_acc', 'main/rot_acc',
          'val/main/l_cls',  'val/main/l_cp', 'val/main/l_ocp',
-         'val/main/cls_acc', 'val/main/ocp_acc', 'val/main/rot_acc', 'val/main/5cm5deg',
+         'val/main/cls_acc', 'val/main/ocp_acc', 'val/main/rot_acc',
          'elapsed_time']))
 
     # Print a progress bar to stdout
