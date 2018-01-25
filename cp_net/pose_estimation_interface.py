@@ -138,7 +138,7 @@ class SimplePoseEstimationInterface(object):
 
         estimated_ocp = np.ones((n_class - 1, 3)) * 10
         estimated_R = np.zeros((n_class - 1, 3, 3))
-
+        dbscan = cluster.DBSCAN(eps=0.01)
         for i_c in six.moves.range(n_class - 1):
             if np.sum(pred_mask[i_c]) < 10:
                 continue
@@ -148,6 +148,12 @@ class SimplePoseEstimationInterface(object):
             ## Remove outlier direct Center Point
             cp_mask3d = (y_cp_nonzero - y_cp_mean < 0.1)
             cp_mask = (np.sum(cp_mask3d, axis=0) == 3)
+
+            dbscan.fit(y_cp_nonzero.transpose(1,0))
+            lbls = dbscan.labels_.astype(np.int32)
+            max_lbl = np.argmax(np.bincount(lbls + 1))
+            cp_mask = (lbls == max_lbl - 1)
+
             if np.sum(cp_mask) < 10:
                 continue
             t_pc_nonzero = t_pc_reshape[:, pmask][:, cp_mask]
@@ -172,6 +178,7 @@ class PoseEstimationInterface(SimplePoseEstimationInterface):
                  n_ransac=100,
                  im_size = (640, 480)):
         super(PoseEstimationInterface, self).__init__(eps, distance_sanity, min_distance, base_path, im_size)
+        self.n_ransac = n_ransac
         ## for flann
         self.flann_search_idx = []
         self.models_pc = []
@@ -241,7 +248,7 @@ class PoseEstimationInterface(SimplePoseEstimationInterface):
             # self.pose_estimator.set_object_id(i_c)
             # ret_ocp, ret_R = self.pose_estimator.ransac_estimation(t_pc_nonzero, y_ocp_nonzero)
 
-            ret_ocp, ret_R = pose_estimation.simple_ransac_estimation_cpp(t_pc_nonzero, y_ocp_nonzero)
+            ret_ocp, ret_R = pose_estimation.simple_ransac_estimation_cpp(t_pc_nonzero, y_ocp_nonzero, n_ransac=self.n_ransac)
             icp_ocp, icp_R = icp(np.dot(ret_R.T, t_pc_nonzero - ret_ocp[:, np.newaxis]),
                                  self.models_pc[i_c].transpose(1,0),
                                  dst_search_idx=self.flann_search_idx[i_c])
