@@ -306,7 +306,7 @@ class JSKPoseEstimationDataset(JSKPoseEstimationDatasetMixin):
 
         ## label
         label = mask * scene_id
-        label[np.isnan(pc[0]) * (label == 0)] = -1
+        label[np.isnan(pc[0])] = -1
 
         ret_pos = np.zeros((self.n_class, 3))
         ret_rot = np.zeros((self.n_class, 3, 3))
