@@ -69,12 +69,10 @@ class SimplePoseEstimationInterface(object):
     ## Support multi-class, one instance per one class
     def __init__(self, eps=0.2,
                  distance_sanity=0.1, min_distance=0.005,
-                 base_path = 'OcclusionChallengeICCV2015',
                  im_size = (640, 480)):
         self.eps = eps
         self.distance_sanity = distance_sanity
         self.min_distance = min_distance
-        self.im_size = im_size
 
     def _get_pointcloud(self, depth_im, K):
         xs = np.tile(np.arange(depth_im.shape[1]), [depth_im.shape[0], 1])
@@ -132,7 +130,9 @@ class SimplePoseEstimationInterface(object):
         y_ocp_reshape = y_ocp.reshape(3, -1)
         return pred_mask, y_cp_reshape, t_pc_reshape, y_ocp_reshape
 
-    def execute(self, y_cls, y_cp, y_ocp, depth, K):
+    def execute(self, y_cls, y_cp, y_ocp, depth, K, estimate_idx=None):
+        if estimate_idx == None:
+            estimate_idx = np.arange(len(self.objs))
         n_class = y_cls.shape[0]
         pred_mask, y_cp_reshape, t_pc_reshape, y_ocp_reshape = self.pre_processing(y_cls, y_cp, y_ocp, depth, K)
 
@@ -140,6 +140,8 @@ class SimplePoseEstimationInterface(object):
         estimated_R = np.zeros((n_class - 1, 3, 3))
         dbscan = cluster.DBSCAN(eps=0.01)
         for i_c in six.moves.range(n_class - 1):
+            if not i_c in estimate_idx:
+                continue
             if np.sum(pred_mask[i_c]) < 10:
                 continue
             pmask = pred_mask[i_c].ravel().astype(np.bool)
@@ -171,13 +173,13 @@ class PoseEstimationInterface(SimplePoseEstimationInterface):
     def __init__(self, eps=0.2,
                  distance_sanity=0.1, min_distance=0.005,
                  base_path = 'OcclusionChallengeICCV2015',
-                 mseh_basepath = None,
+                 mesh_basepath = None,
                  objs =['Ape', 'Can', 'Cat', 'Driller', 'Duck', 'Eggbox', 'Glue', 'Holepuncher'],
                  model_partial= 1,
                  model_scale= 1.0,
                  n_ransac=100,
                  im_size = (640, 480)):
-        super(PoseEstimationInterface, self).__init__(eps, distance_sanity, min_distance, base_path, im_size)
+        super(PoseEstimationInterface, self).__init__(eps, distance_sanity, min_distance, im_size)
         self.n_ransac = n_ransac
         ## for flann
         self.flann_search_idx = []
