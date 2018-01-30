@@ -69,12 +69,10 @@ class SimplePoseEstimationInterface(object):
     ## Support multi-class, one instance per one class
     def __init__(self, eps=0.2,
                  distance_sanity=0.1, min_distance=0.005,
-                 base_path = 'OcclusionChallengeICCV2015',
                  im_size = (640, 480)):
         self.eps = eps
         self.distance_sanity = distance_sanity
         self.min_distance = min_distance
-        self.im_size = im_size
 
     def _get_pointcloud(self, depth_im, K):
         xs = np.tile(np.arange(depth_im.shape[1]), [depth_im.shape[0], 1])
@@ -132,14 +130,18 @@ class SimplePoseEstimationInterface(object):
         y_ocp_reshape = y_ocp.reshape(3, -1)
         return pred_mask, y_cp_reshape, t_pc_reshape, y_ocp_reshape
 
-    def execute(self, y_cls, y_cp, y_ocp, depth, K):
+    def execute(self, y_cls, y_cp, y_ocp, depth, K, estimate_idx=None):
+        if estimate_idx == None:
+            estimate_idx = np.arange(len(self.objs))
         n_class = y_cls.shape[0]
         pred_mask, y_cp_reshape, t_pc_reshape, y_ocp_reshape = self.pre_processing(y_cls, y_cp, y_ocp, depth, K)
 
         estimated_ocp = np.ones((n_class - 1, 3)) * 10
         estimated_R = np.zeros((n_class - 1, 3, 3))
-
+        dbscan = cluster.DBSCAN(eps=0.01)
         for i_c in six.moves.range(n_class - 1):
+            if not i_c in estimate_idx:
+                continue
             if np.sum(pred_mask[i_c]) < 10:
                 continue
             pmask = pred_mask[i_c].ravel().astype(np.bool)
@@ -148,6 +150,12 @@ class SimplePoseEstimationInterface(object):
             ## Remove outlier direct Center Point
             cp_mask3d = (y_cp_nonzero - y_cp_mean < 0.1)
             cp_mask = (np.sum(cp_mask3d, axis=0) == 3)
+
+            dbscan.fit(y_cp_nonzero.transpose(1,0))
+            lbls = dbscan.labels_.astype(np.int32)
+            max_lbl = np.argmax(np.bincount(lbls + 1))
+            cp_mask = (lbls == max_lbl - 1)
+
             if np.sum(cp_mask) < 10:
                 continue
             t_pc_nonzero = t_pc_reshape[:, pmask][:, cp_mask]
@@ -165,13 +173,14 @@ class PoseEstimationInterface(SimplePoseEstimationInterface):
     def __init__(self, eps=0.2,
                  distance_sanity=0.1, min_distance=0.005,
                  base_path = 'OcclusionChallengeICCV2015',
-                 mseh_basepath = None,
+                 mesh_basepath = None,
                  objs =['Ape', 'Can', 'Cat', 'Driller', 'Duck', 'Eggbox', 'Glue', 'Holepuncher'],
                  model_partial= 1,
                  model_scale= 1.0,
                  n_ransac=100,
                  im_size = (640, 480)):
-        super(PoseEstimationInterface, self).__init__(eps, distance_sanity, min_distance, base_path, im_size)
+        super(PoseEstimationInterface, self).__init__(eps, distance_sanity, min_distance, im_size)
+        self.n_ransac = n_ransac
         ## for flann
         self.flann_search_idx = []
         self.models_pc = []
@@ -241,7 +250,7 @@ class PoseEstimationInterface(SimplePoseEstimationInterface):
             # self.pose_estimator.set_object_id(i_c)
             # ret_ocp, ret_R = self.pose_estimator.ransac_estimation(t_pc_nonzero, y_ocp_nonzero)
 
-            ret_ocp, ret_R = pose_estimation.simple_ransac_estimation_cpp(t_pc_nonzero, y_ocp_nonzero)
+            ret_ocp, ret_R = pose_estimation.simple_ransac_estimation_cpp(t_pc_nonzero, y_ocp_nonzero, n_ransac=self.n_ransac)
             icp_ocp, icp_R = icp(np.dot(ret_R.T, t_pc_nonzero - ret_ocp[:, np.newaxis]),
                                  self.models_pc[i_c].transpose(1,0),
                                  dst_search_idx=self.flann_search_idx[i_c])
