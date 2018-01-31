@@ -6,23 +6,12 @@ object pose estimation using neural network
 ### cp_net
 pose estimation using deep neural network
 
-<<<<<<< HEAD
-=======
-### cp_net_ros
-ros wrapper of cp_net
-
-
->>>>>>> 0e0225c710a86a8a892d78d02fff915d006ecb39
 ## Data Set
 linemod dataset
 
 
 ## requirements
-<<<<<<< HEAD
 Eigen, cython, chainer v3, cuda, scikit-learn, cv2, etc...
-=======
-Eigen, cython, chainer v3, cuda, etc...
->>>>>>> 0e0225c710a86a8a892d78d02fff915d006ecb39
 
 https://github.com/oshiroy/pose_estimation_gpu
 
@@ -43,12 +32,6 @@ tar xfvz model_iteration-100000.tar.gz
 cd ..
 
 # demo
-<<<<<<< HEAD
 cd examples/linemodSIXD2017
 cd python demo.py -g 0 ../../trained_data/model_iteration-100000
-=======
-cd examples/linemodSIXD
-cd python demo.py -g 0 ../../model_iteration-100000
->>>>>>> 0e0225c710a86a8a892d78d02fff915d006ecb39
-
 ```
