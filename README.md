@@ -6,32 +6,32 @@ object pose estimation using neural network
 ### cp_net
 pose estimation using deep neural network
 
-### cp_net_ros
-ros wrapper of cp_net
-
-
-## Data Set Format Example
-    dataset --- object01 
-             |
-             -- object02
-             |
-             -- object03
-             |
-             
-    object01/rgb_00000000.png\
-    object01/depth_00000000.png\
-    object01/mask_00000000.png\
-    object01/dist_00000000.npy\
-    object01/rot_00000000.npy\
-    object01/pc_00000000.npy
+## Data Set
+linemod dataset
 
 
 ## requirements
+Eigen, cython, chainer v3, cuda, scikit-learn, cv2, etc...
+
+https://github.com/oshiroy/pose_estimation_gpu
 
 
-## installation glfw3
-```python
-sudo add-apt-repository ppa:keithw/glfw3
-sudo apt-get update
-sudo apt-get install libglfw3-dev
+## Sample
+```
+pip install -e .
+mkdir train_data
+cd train_data
+## download train_data from (https://drive.google.com/file/d/1A2skh4mYgsoXXKnLOuQ2BVPsnSoe8PZu/view?usp=sharing) in train_data
+tar xfvz linemodSIXD2017.tar.gz
+cd ..
+
+mkdir trained_data
+cd trained_data
+## download network model from (https://drive.google.com/file/d/1fiBsCbx0kWK76lhZZ-EGDrRJ35hFBNsu/view?usp=sharing) in trained_data
+tar xfvz model_iteration-100000.tar.gz
+cd ..
+
+# demo
+cd examples/linemodSIXD2017
+cd python demo.py -g 0 ../../trained_data/model_iteration-100000
 ```
