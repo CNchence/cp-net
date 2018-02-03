@@ -173,6 +173,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                  resize_rate = 0.5,
                  iteration_per_epoch=1000,
                  load_poses=True,
+                 flip=False,
                  metric_filter=1.0):
 
         super(LinemodSIXDAutoContextDataset, self).__init__(path, objs_indices,
@@ -195,6 +196,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         self.channel_swap = channel_swap
         self.iteration_per_epoch = iteration_per_epoch
         self.resize_rate = resize_rate
+        self.flip = flip
 
     def __len__(self):
         return min(self.iteration_per_epoch, len(self.idx_dict[0]))
@@ -274,6 +276,13 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             rgb, depth = self._load_images(target_obj, im_id)
             pos, rot = self._load_pose(target_obj, im_id)
             mask = self._load_mask(target_obj, im_id)
+            if self.flip and np.random.randint(0, 2):
+                rgb = rgb[:, ::-1]
+                depth = depth[:, ::-1]
+                mask = mask[:, ::-1]
+                pos[1] = - pos[1]
+                rot = np.dot(np.array([[1,0,0],[0,-1,0],[0,0,1]]), rot)
+
             points = self._get_pointcloud(depth, K, fill_nan=False)
             img_rgb, img_depth, obj_mask, img_cp, img_ocp, positions, rotations =\
             auto_context_data(img_rgb, img_depth, obj_mask, img_cp, img_ocp,
