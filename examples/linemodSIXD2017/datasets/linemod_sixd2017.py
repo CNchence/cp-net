@@ -17,7 +17,7 @@ import yaml
 from cp_net.utils import preprocess_utils
 from cp_net.utils import inout
 from cp_net.utils import multi_object_renderer
-from cp_net.utils.imgaug_utils import ImageAugmenter
+from cp_net.utils.imgaug_utils import ImageAugmenter, TransformAugmenter
 from cp_net.utils.auto_context_data import random_affine, estimate_visib_region, auto_context_data
 
 from multiprocessing import Process, Pool, cpu_count
@@ -197,6 +197,7 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         self.iteration_per_epoch = iteration_per_epoch
         self.resize_rate = resize_rate
         self.flip = flip
+        self.transformer = TransformAugmenter()
 
     def __len__(self):
         return min(self.iteration_per_epoch, len(self.idx_dict[0]))
@@ -282,7 +283,11 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
                 mask = mask[:, ::-1]
                 pos[1] = - pos[1]
                 rot = np.dot(np.array([[1,0,0],[0,-1,0],[0,0,1]]), rot)
-
+            if self.flip and np.random.randint(0, 2):
+                self.transformer.deterministic_update()
+                rgb = self.transformer.augment_deterministic(rgb)
+                depth = self.transformer.augment_deterministic(depth)
+                mask = self.transformer.augment_deterministic(mask)
             points = self._get_pointcloud(depth, K, fill_nan=False)
             img_rgb, img_depth, obj_mask, img_cp, img_ocp, positions, rotations =\
             auto_context_data(img_rgb, img_depth, obj_mask, img_cp, img_ocp,
