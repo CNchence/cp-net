@@ -31,7 +31,7 @@ def auto_context_data(concat_rgb, concat_depth, concat_mask, concat_cp, concat_o
     out_height, out_width = concat_depth.shape[:2]
     cp = pos[np.newaxis, np.newaxis, :] - points
     depth, M0, trans_pos = random_affine(depth, pos, (img_width, img_height), K)
-    M = M0.copy() * (out_width // img_width)
+    M = M0.copy() * (out_width / (1.0 * img_width))
     rgb = cv2.warpAffine(rgb, M0, (img_width, img_height))
     depth = cv2.warpAffine(depth, M, (out_width, out_height))
     mask = cv2.warpAffine(mask, M, (out_width, out_height))

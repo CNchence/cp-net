@@ -2,6 +2,7 @@
 
 import glob
 import os
+import time
 
 from chainer import dataset
 
@@ -244,6 +245,10 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
         scene_id, im_id = self.idx_dict[:, i]
         K = self._load_k(scene_id, im_id)
 
+        # random seed
+        t = time.time()
+        np.random.seed(int((t - int(t)) * 100000) + i)
+
         min_obj_num = min(10, len(self.objs)) # tmp
         obj_num = np.random.randint(min_obj_num, len(self.objs) + 1)
         obj_ind = np.random.choice(self.objs, obj_num, replace=False)
@@ -284,14 +289,13 @@ class LinemodSIXDAutoContextDataset(LinemodSIXDDataset):
             img_bg = img_bg[:, :, np.random.choice(np.arange(3), 3, replace=False)]
 
         ## random light color
-        # img_rgb = (img_rgb * (np.random.rand(3) * 0.4 + 0.8)[np.newaxis, np.newaxis, :])
+        img_rgb = (img_rgb * (np.random.rand(3) * 0.4 + 0.8)[np.newaxis, np.newaxis, :])
         rgb_mask = np.linalg.norm(img_rgb, axis=2) > 0
         img_rgb = img_rgb * rgb_mask[:, :, np.newaxis] + img_bg * np.invert(rgb_mask[:, :, np.newaxis].astype(np.bool))
-        # img_rgb = self.imgaug.augment(img_rgb)
+        img_rgb = self.imgaug.augment(img_rgb)
         img_rgb = self._transform(img_rgb)
 
         pc = self._get_pointcloud(img_depth, K, fill_nan=True).transpose(2,0,1)
-        obj_mask = (obj_mask * nonnan_mask).astype(np.float32)
 
         for i in six.moves.range(len(self.objs)):
             label[obj_mask[i] == True] = self.objs[i]
