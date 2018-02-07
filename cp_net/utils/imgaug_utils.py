@@ -32,3 +32,24 @@ class ImageAugmenter(object):
     def augment(self, img):
         return self.seq.augment_images(np.expand_dims(img.astype(np.uint8), axis=0))[0].astype(img.dtype)
 
+
+class TransformAugmenter(object):
+    def __init__(self, cval=0):
+        sometimes = lambda aug: iaa.Sometimes(0.4, aug)
+        self.seq= iaa.Sequential([
+            # sometimes(
+            #     iaa.PiecewiseAffine(scale=(0.01, 0.05))),
+            iaa.Affine(scale={"x": (0.75, 2.0), "y": (0.75, 2.0)},
+                       rotate=(-30, 30),
+                       shear=(-16, 16),
+                       order=0,
+                       cval=cval),
+        ], random_order=True)
+        self.seq_det = self.seq.to_deterministic()
+    def augment(self, img):
+        return self.seq.augment_images(np.expand_dims(img.astype(np.uint8), axis=0))[0].astype(img.dtype)
+    def augment_deterministic(self, img):
+        return self.seq_det.augment_images(np.expand_dims(img.astype(np.uint8), axis=0))[0].astype(img.dtype)
+    def deterministic_update(self):
+        self.seq_det = self.seq.to_deterministic()
+
