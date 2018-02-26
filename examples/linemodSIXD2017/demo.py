@@ -55,6 +55,10 @@ def main():
     im_size=(640, 480)
     interval = 15
 
+    K_orig = np.array([[572.41140000, 0.00000000, 325.26110000],
+                       [0.00000000, 573.57043000, 242.04899000],
+                       [0.00000000, 0.00000000, 1.00000000]])
+
     ## load object models
     obj_model_fpath_mask = os.path.join(data_path, 'models', 'obj_{0:0>2}.ply')
     obj_models = []
@@ -121,7 +125,8 @@ def main():
 
         img_rgb = (img_rgb.transpose(1,2,0) * 255.0 + imagenet_mean).astype(np.uint8)
         img_rgb_resize = cv2.resize(img_rgb, (img_rgb.shape[1] / 2, img_rgb.shape[0] / 2))
-        gray = img_as_float(rgb2gray(img_rgb_resize))
+        # gray = img_as_float(rgb2gray(img_rgb_resize))
+        gray = img_as_float(rgb2gray(img_rgb))
         gray = gray2rgb(gray) * image_alpha + (1 - image_alpha)
 
         cls_gt = np.zeros_like(img_rgb_resize)
@@ -134,6 +139,10 @@ def main():
                 acls_gt = (label == cls_id)[:, :, np.newaxis] * color
                 cls_mask = cls_mask + acls
                 cls_gt = cls_gt + acls_gt
+
+        cls_mask = cv2.resize((cls_mask * 255).astype(np.uint8), im_size, interpolation=cv2.INTER_NEAREST)
+        cls_gt = cv2.resize((cls_gt * 255).astype(np.uint8), im_size, interpolation=cv2.INTER_NEAREST)
+
         cls_vis_gt = cls_gt * alpha + gray * (1 - alpha)
         cls_vis_gt = (cls_vis_gt * 255).astype(np.uint8)
         cls_vis = cls_mask * alpha + gray * (1 - alpha)

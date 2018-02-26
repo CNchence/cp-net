@@ -60,10 +60,10 @@ def main():
 
     # pose estimator instance
     # pei = SimplePoseEstimationInterface(distance_sanity=distance_sanity,
-    #                                     base_path=data_path,
-    #                                     min_distance=min_distance, eps=prob_eps, im_size=im_size)
+    #                                     min_distance=min_distance, eps=prob_eps)
     pei = PoseEstimationInterface(objs= ['obj_{0:0>2}'.format(i) for i in objs],
                                   base_path=data_path,
+                                  n_ransac=500,
                                   distance_sanity=distance_sanity,
                                   model_scale = 1000.0,
                                   model_partial= 1,
@@ -72,6 +72,7 @@ def main():
     scores_rot = []
     ids_arr = []
     scores_5cm5deg = []
+    scores_6dpose = []
     test_objs = np.delete(np.arange(15) + 1, [2, 6])
     for obj_id in test_objs:
         test = LinemodSIXDSingleInstanceDataset(data_path, obj_id,
@@ -82,6 +83,7 @@ def main():
         # im_ids = 50
         detect_cnt = 0
         cnt_5cm5deg = 0
+        cnt_6dpose = 0
         sum_pos = 0
         sum_rot = 0
         for im_id in tqdm.trange(im_ids):
@@ -100,7 +102,8 @@ def main():
 
             y_pos, y_rot = pei.execute(y_cls, y_cp * output_scale, y_ocp * output_scale, img_depth, K, estimate_idx = [obj_id - 1])
             for i in six.moves.range(n_class - 1):
-                if np.sum(pos[i]) != 0 and  np.sum(rot[i]) != 0:
+                if np.sum(pos[i]) != 0 and np.sum(rot[i]) != 0:
+                    # 5cm 5deg metric
                     pos_diff = np.linalg.norm(y_pos[i] - pos[i])
                     quat = quaternion.from_rotation_matrix(np.dot(y_rot[i].T, rot[i]))
                     quat_w = min(1, abs(quat.w))
@@ -112,12 +115,20 @@ def main():
                         detect_cnt += 1
                         if  pos_diff < 0.05 and diff_angle < 5:
                             cnt_5cm5deg +=1
+                    # 6d pose metric
+                    model_pts = obj_models[i]['pts'].transpose(1,0)
+                    gt_proj = np.dot(rot[i].T, model_pts) + pos[i, :, np.newaxis]
+                    pred_proj = np.dot(y_rot[i].T, model_pts) + pos[i, :,np.newaxis]
+                    diff_mean = np.mean(np.linalg.norm((gt_proj - pred_proj), axis=0))
+                    if i + 1 == obj_id and pos_diff < 1.0 and diff_mean < 0.1 * object_diameters[i]:
+                        cnt_6dpose += 1
 
-        print "obj_{0:0>2} : detection_rate = {1}, position_diff = {2}, rotation_diff = {3}, 5cm5deg = {4}" \
-            .format(obj_id, detect_cnt / (1.0 * im_ids), sum_pos / detect_cnt, sum_rot / detect_cnt, cnt_5cm5deg / (1.0 * im_ids))
+        print "obj_{0:0>2} : detection_rate = {1},\n position_diff = {2}, rotation_diff = {3}, 5cm5deg = {4}, 6d pose = {5}" \
+            .format(obj_id, detect_cnt / (1.0 * im_ids), sum_pos / detect_cnt, sum_rot / detect_cnt, cnt_5cm5deg / (1.0 * im_ids), cnt_6dpose / (1.0 * im_ids))
         scores_pos.append(sum_pos / im_ids)
         scores_rot.append(sum_rot / im_ids)
         scores_5cm5deg.append(cnt_5cm5deg)
+        scores_6dpose.append(cnt_6dpose)
         ids_arr.append(im_ids)
 
 
@@ -127,7 +138,23 @@ def main():
     print "-- total results --"
     ids_arr = np.asarray(ids_arr)
     scores_5cm5deg = np.asarray(scores_5cm5deg)
-    print "5cm5deg ratio : {}".format(np.sum(scores_5cm5deg) / (1.0 * np.sum(ids_arr)))
+    ave_5cm5deg = np.sum(scores_5cm5deg) / (1.0 * np.sum(ids_arr))
+    ave_6dpose = np.sum(scores_6dpose) / (1.0 * np.sum(ids_arr))
+    print "5cm5deg metric : {}".format(ave_5cm5deg)
+    print "6d pose metric : {}".format(ave_6dpose)
+
+    # scores_pos = scores_pos * 1000 # m -> mm
+    scores_5cm5deg = scores_5cm5deg / ids_arr
+    scores_6dpose = scores_6dpose / ids_arr
+    scores_ave = np.array([ave_5cm5deg, ave_6dpose])
+
+    if not os.path.exists('eval_results'):
+        os.makedirs('eval_results')
+    np.save('eval_results/scores_pos.npy', scores_pos)
+    np.save('eval_results/scores_rot.npy', scores_rot)
+    np.save('eval_results/scores_5cm5deg.npy', scores_5cm5deg)
+    np.save('eval_results/scores_6dpose.npy', scores_6dpose)
+    np.save('eval_results/scores_ave.npy', scores_ave)
 
 if __name__ == '__main__':
     main()
