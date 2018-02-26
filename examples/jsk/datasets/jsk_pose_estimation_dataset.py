@@ -316,7 +316,7 @@ class JSKPoseEstimationDataset(JSKPoseEstimationDatasetMixin):
         obj_mask = label.copy()
         obj_mask[obj_mask > 0] = 1
 
-        return img_rgb, label.astype(np.int32), img_depth, ret_cp, ret_ocp, pos, rot, pc, obj_mask.astype(np.int32), nonnan_mask, K
+        return img_rgb, label.astype(np.int32), img_depth, ret_cp, ret_ocp, ret_pos, ret_rot, pc, obj_mask.astype(np.int32), nonnan_mask, K
 
 
 
@@ -331,7 +331,7 @@ if __name__== '__main__':
     image_alpha=1
     root = '../../..'
 
-    train_path = os.path.join(os.getcwd(), root, 'train_data/JSK_Objects')
+    train_path = os.path.join(os.getcwd(), root, 'train_data/JSK_Objects/train')
     bg_path = os.path.join(os.getcwd(), root, 'train_data/VOCdevkit/VOC2012/JPEGImages')
     obj_list = np.arange(1) + 1
     visualize_test_data = True

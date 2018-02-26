@@ -98,7 +98,7 @@ def main():
     objs = np.arange(3) + 1
     n_class = len(objs) + 1
 
-    train_path = os.path.join(os.getcwd(), root, 'train_data/JSK_Objects')
+    train_path = os.path.join(os.getcwd(), root, 'train_data/JSK_Objects/train')
     bg_path = os.path.join(os.getcwd(), root, 'train_data/MS_COCO/train2017')
     # bg_path = os.path.join(os.getcwd(), root, 'train_data/VOCdevkit/VOC2012/JPEGImages')
 

@@ -18,7 +18,7 @@ from skimage.util import img_as_float
 from skimage.color.colorlabel import color_dict
 
 from cp_net.models.dual_cp_network_ver2 import DualCenterProposalNetworkRes50_predict7
-from cp_net.pose_estimation_interface import SimplePoseEstimationInterface
+from cp_net.pose_estimation_interface import SimplePoseEstimationInterface, PoseEstimationInterface
 from cp_net.utils import renderer
 from cp_net.utils import inout
 
@@ -41,7 +41,7 @@ def main():
     ## delta for visibility correspondance
     delta = 0.015 # [m]
 
-    objs = np.arange(1) + 1
+    objs = np.arange(3) + 1
     n_class = len(objs) + 1
     distance_sanity = 0.05
     min_distance= 0.005
@@ -68,19 +68,27 @@ def main():
         cuda.get_device(args.gpu).use()
         model.to_gpu()
 
-    test = JSKPoseEstimationDataset(data_path, objs,
+    test = JSKPoseEstimationDataset(os.path.join(data_path, 'train'),
+                                    objs,
                                     mode='train',
                                     interval=interval,
                                     resize_rate=0.5,
                                     metric_filter=output_scale + eps)
 
-    fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(16, 10))
+    # fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(16, 10))
     im_ids = range(test.__len__())
 
     # pose estimator instance
     pei = SimplePoseEstimationInterface(distance_sanity=distance_sanity,
-                                        base_path=data_path,
                                         min_distance=min_distance, eps=eps, im_size=im_size)
+
+    # obj_name = []
+    # for i in xrange(len(objs)):
+    #     obj_name.append("{0:0>2}".format(objs[i]))
+    # pei = PoseEstimationInterface(objs=obj_name,
+    #                               distance_sanity=distance_sanity,
+    #                               base_path=data_path,
+    #                               min_distance=min_distance, eps=eps, im_size=im_size)
 
 
     imagenet_mean = np.array(
@@ -160,24 +168,24 @@ def main():
                 pose_vis_pred[mask, :]  = ren_pred[0][mask]
 
         # Clear axes
-        for ax in axes.flatten():
-            ax.clear()
-        axes[0, 0].imshow(img_rgb[:,:,::-1].astype(np.uint8))
-        axes[0, 0].set_title('RGB image')
-        axes[0, 1].imshow(img_depth)
-        axes[0, 1].set_title('Depth image')
-        axes[1, 0].imshow(cls_vis_gt)
-        axes[1, 0].set_title('class gt')
-        axes[1, 1].imshow(cls_vis)
-        axes[1, 1].set_title('class pred')
-        axes[2, 0].imshow(pose_vis_gt)
-        axes[2, 0].set_title('pose gt vis')
-        axes[2, 1].imshow(pose_vis_pred)
-        axes[2, 1].set_title('pose pred vis')
+        # for ax in axes.flatten():
+        #     ax.clear()
+        # axes[0, 0].imshow(img_rgb[:,:,::-1].astype(np.uint8))
+        # axes[0, 0].set_title('RGB image')
+        # axes[0, 1].imshow(img_depth)
+        # axes[0, 1].set_title('Depth image')
+        # axes[1, 0].imshow(cls_vis_gt)
+        # axes[1, 0].set_title('class gt')
+        # axes[1, 1].imshow(cls_vis)
+        # axes[1, 1].set_title('class pred')
+        # axes[2, 0].imshow(pose_vis_gt)
+        # axes[2, 0].set_title('pose gt vis')
+        # axes[2, 1].imshow(pose_vis_pred)
+        # axes[2, 1].set_title('pose pred vis')
 
-        fig.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95, hspace=0.15, wspace=0.15)
-        plt.draw()
-        plt.pause(0.01)
+        # fig.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95, hspace=0.15, wspace=0.15)
+        # plt.draw()
+        # plt.pause(0.01)
         # plt.waitforbuttonpress()
 
 
