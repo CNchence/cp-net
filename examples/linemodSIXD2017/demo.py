@@ -55,6 +55,10 @@ def main():
     im_size=(640, 480)
     interval = 15
 
+    K_orig = np.array([[572.41140000, 0.00000000, 325.26110000],
+                       [0.00000000, 573.57043000, 242.04899000],
+                       [0.00000000, 0.00000000, 1.00000000]])
+
     ## load object models
     obj_model_fpath_mask = os.path.join(data_path, 'models', 'obj_{0:0>2}.ply')
     obj_models = []
@@ -97,6 +101,14 @@ def main():
     colors= ('grey', 'red', 'blue', 'yellow', 'magenta', 'green', 'indigo', 'darkorange', 'cyan', 'pink',
              'yellowgreen', 'blueviolet', 'brown', 'darkmagenta', 'aqua', 'crimson')
 
+    # save output img
+    save_image = False
+
+    if save_image:
+        save_dir = os.path.join("bvise_demo_data")
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
     for im_id in im_ids:
         print "executing {0} / {1}".format(im_id, test.__len__())
         img_rgb, label, img_depth, img_cp, img_ocp, pos, rot, pc, obj_mask, nonnan_mask, K = test.get_example(im_id)
@@ -121,7 +133,8 @@ def main():
 
         img_rgb = (img_rgb.transpose(1,2,0) * 255.0 + imagenet_mean).astype(np.uint8)
         img_rgb_resize = cv2.resize(img_rgb, (img_rgb.shape[1] / 2, img_rgb.shape[0] / 2))
-        gray = img_as_float(rgb2gray(img_rgb_resize))
+        # gray = img_as_float(rgb2gray(img_rgb_resize))
+        gray = img_as_float(rgb2gray(img_rgb))
         gray = gray2rgb(gray) * image_alpha + (1 - image_alpha)
 
         cls_gt = np.zeros_like(img_rgb_resize)
@@ -134,6 +147,10 @@ def main():
                 acls_gt = (label == cls_id)[:, :, np.newaxis] * color
                 cls_mask = cls_mask + acls
                 cls_gt = cls_gt + acls_gt
+
+        cls_mask = cv2.resize((cls_mask * 255).astype(np.uint8), im_size, interpolation=cv2.INTER_NEAREST)
+        cls_gt = cv2.resize((cls_gt * 255).astype(np.uint8), im_size, interpolation=cv2.INTER_NEAREST)
+
         cls_vis_gt = cls_gt * alpha + gray * (1 - alpha)
         cls_vis_gt = (cls_vis_gt * 255).astype(np.uint8)
         cls_vis = cls_mask * alpha + gray * (1 - alpha)
@@ -154,18 +171,25 @@ def main():
             if not vis_render:
                 continue
             # Render the object model
+            img_depth_resize = cv2.resize(img_depth, im_size)
             if np.sum(rot[i]) != 0:
                 ren_gt = renderer.render(
-                    obj_models[i], (im_size[0] / 2, im_size[1] / 2),  K,
+                    obj_models[i], im_size,  K_orig,
                     rot[i], (pos[i].T * 1000), 100, 4000, mode='rgb+depth')
-                mask = np.logical_and((ren_gt[1] != 0), np.logical_or((ren_gt[1] / 1000.0 < img_depth + render_eps), (img_depth == 0)))
+                mask = np.logical_and((ren_gt[1] != 0), np.logical_or((ren_gt[1] / 1000.0 < img_depth_resize + render_eps), (img_depth_resize == 0)))
                 pose_vis_gt[mask, :] = ren_gt[0][mask]
             if np.sum(y_rot[i]) != 0:
                 ren_pred = renderer.render(
-                    obj_models[i], (im_size[0] / 2, im_size[1] / 2), K, y_rot[i],
+                    obj_models[i], im_size, K_orig, y_rot[i],
                     (y_pos[i].T * 1000), 100, 4000, mode='rgb+depth')
-                mask = np.logical_and((ren_pred[1] != 0), np.logical_or((ren_pred[1] / 1000.0 < img_depth + render_eps), (img_depth == 0)))
+                mask = np.logical_and((ren_pred[1] != 0), np.logical_or((ren_pred[1] / 1000.0 < img_depth_resize + render_eps), (img_depth_resize == 0)))
                 pose_vis_pred[mask, :]  = ren_pred[0][mask]
+
+        if save_image:
+            cv2.imwrite(os.path.join(save_dir, "rgb_{0:0>4}.png".format(im_id)), img_rgb.astype(np.uint8))
+            cv2.imwrite(os.path.join(save_dir, "mask_vis_{0:0>4}.png".format(im_id)), cls_vis[:, :, ::-1].astype(np.uint8))
+            cv2.imwrite(os.path.join(save_dir, "pose_{0:0>4}.png".format(im_id)), pose_vis_pred[:, :, ::-1].astype(np.uint8))
+            cv2.imwrite(os.path.join(save_dir, "gt_pose_{0:0>4}.png".format(im_id)), pose_vis_gt[:, :, ::-1].astype(np.uint8))
 
         # Clear axes
         for ax in axes.flatten():
@@ -186,7 +210,7 @@ def main():
         fig.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95, hspace=0.15, wspace=0.15)
         plt.draw()
         plt.pause(0.01)
-        # plt.waitforbuttonpress()
+        plt.waitforbuttonpress()
 
 
 if __name__ == '__main__':

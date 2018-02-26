@@ -19,7 +19,7 @@ class MaskMeanSquaredError(function_node.FunctionNode):
             in_types[0].shape == in_types[1].shape,
             in_types[2].shape[0] == in_types[0].shape[0],
             in_types[2].shape[-2:] == in_types[0].shape[-2:],
-            len(in_types[2].shape) == 3 or len(in_types[2].shape) == 4
+            # len(in_types[2].shape) == 3 or len(in_types[2].shape) == 4
         )
 
     def forward_cpu(self, inputs):

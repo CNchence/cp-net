@@ -36,11 +36,9 @@ def main():
     render_eps = 0.015
 
     data_path = '../../train_data/JSK_Objects'
-    bg_path = '../../train_data/VOCdevkit/VOC2012/JPEGImages'
 
     ## delta for visibility correspondance
     delta = 0.015 # [m]
-
     objs = np.arange(3) + 1
     n_class = len(objs) + 1
     distance_sanity = 0.05
@@ -48,7 +46,6 @@ def main():
     output_scale = 0.5
     prob_eps = 0.4
     eps = 0.05
-    im_size=(640, 480)
     interval = 15
 
     ## load object models
@@ -80,7 +77,7 @@ def main():
 
     # pose estimator instance
     pei = SimplePoseEstimationInterface(distance_sanity=distance_sanity,
-                                        min_distance=min_distance, eps=eps, im_size=im_size)
+                                        min_distance=min_distance, eps=eps)
 
     # obj_name = []
     # for i in xrange(len(objs)):
@@ -96,6 +93,16 @@ def main():
 
     colors= ('grey', 'red', 'blue', 'yellow', 'magenta', 'green', 'indigo', 'darkorange', 'cyan', 'pink')
 
+    scores_pos = []
+    scores_rot = []
+    ids_arr = []
+    scores_5cm5deg = []
+    scores_10cm10deg = []
+    scores_15cm15deg = []
+    cnt_ims = np.zeros(n_class -1)
+    cnt_5cm5deg = np.zeros(n_class -1)
+    cnt_10cm10deg = np.zeros(n_class -1)
+    cnt_15cm15deg = np.zeros(n_class -1)
     for im_id in im_ids:
         print "executing {0} / {1}".format(im_id, test.__len__())
         img_rgb, label, img_depth, img_cp, img_ocp, pos, rot, pc, obj_mask, nonnan_mask, K = test.get_example(im_id)
@@ -113,36 +120,7 @@ def main():
                 y_cls = chainer.cuda.to_cpu(y_cls_d.data)[0]
                 y_cp = chainer.cuda.to_cpu(y_cp_d.data)[0]
                 y_ocp = chainer.cuda.to_cpu(y_ocp_d.data)[0]
-
-        cls_pred[cls_prob < prob_eps] = 0
-
         y_pos, y_rot = pei.execute(y_cls, y_cp * output_scale, y_ocp * output_scale, img_depth, K)
-
-        img_rgb = (img_rgb.transpose(1,2,0) * 255.0 + imagenet_mean).astype(np.uint8)
-        img_rgb_resize = cv2.resize(img_rgb, (img_rgb.shape[1] / 2, img_rgb.shape[0] / 2))
-        gray = img_as_float(rgb2gray(img_rgb_resize))
-        gray = gray2rgb(gray) * image_alpha + (1 - image_alpha)
-
-        cls_gt = np.zeros_like(img_rgb_resize)
-        cls_mask = np.zeros_like(img_rgb_resize)
-        # cls ground truth
-        for cls_id, cls in enumerate(objs):
-            cls_id += 1
-            color = color_dict[colors[cls_id]]
-            acls = (cls_pred == cls_id)[:, :, np.newaxis] * color
-            acls_gt = (label == cls_id)[:, :, np.newaxis] * color
-            cls_mask = cls_mask + acls
-            cls_gt = cls_gt + acls_gt
-
-        cls_vis_gt = cls_gt * alpha + gray * (1 - alpha)
-        cls_vis_gt = (cls_vis_gt * 255).astype(np.uint8)
-        cls_vis = cls_mask * alpha + gray * (1 - alpha)
-        cls_vis = (cls_vis * 255).astype(np.uint8)
-
-        pose_vis_gt = (gray.copy() * 255).astype(np.uint8)
-        pose_vis_pred = (gray.copy() * 255).astype(np.uint8)
-        vis_render = False
-
         for i in six.moves.range(n_class - 1):
             if np.sum(pos[i]) != 0 and  np.sum(rot[i]) != 0:
                 pos_diff = np.linalg.norm(y_pos[i] - pos[i])
@@ -150,43 +128,22 @@ def main():
                 quat_w = min(1, abs(quat.w))
                 diff_angle = np.rad2deg(np.arccos(quat_w)) * 2
                 print "obj_{0:0>2} : position_diff = {1}, rotation_diff = {2}".format(i + 1, pos_diff, diff_angle)
+                cnt_ims[i] += 1
+                if  pos_diff < 0.05 and diff_angle < 5:
+                    cnt_5cm5deg[i] +=1
+                if  pos_diff < 0.10 and diff_angle < 10:
+                    cnt_10cm10deg[i] +=1
+                if  pos_diff < 0.15 and diff_angle < 15:
+                    cnt_15cm15deg[i] +=1
 
-            if not vis_render:
-                continue
-            # Render the object model
-            if np.sum(rot[i]) != 0:
-                ren_gt = renderer.render(
-                    obj_models[i], (im_size[0] / 2, im_size[1] / 2),  K,
-                    rot[i], (pos[i].T * 1000), 100, 4000, mode='rgb+depth')
-                mask = np.logical_and((ren_gt[1] != 0), np.logical_or((ren_gt[1] / 1000.0 < img_depth + render_eps), (img_depth == 0)))
-                pose_vis_gt[mask, :] = ren_gt[0][mask]
-            if np.sum(y_rot[i]) != 0:
-                ren_pred = renderer.render(
-                    obj_models[i], (im_size[0] / 2, im_size[1] / 2), K, y_rot[i],
-                    (y_pos[i].T * 1000), 100, 4000, mode='rgb+depth')
-                mask = np.logical_and((ren_pred[1] != 0), np.logical_or((ren_pred[1] / 1000.0 < img_depth + render_eps), (img_depth == 0)))
-                pose_vis_pred[mask, :]  = ren_pred[0][mask]
+    print "5cm 5deg metric per object: {}".format(cnt_5cm5deg / cnt_ims)
+    print "10cm 10deg metric per object: {}".format(cnt_10cm10deg / cnt_ims)
+    print "15cm 15deg metric per object: {}".format(cnt_15cm15deg / cnt_ims)
 
-        # Clear axes
-        # for ax in axes.flatten():
-        #     ax.clear()
-        # axes[0, 0].imshow(img_rgb[:,:,::-1].astype(np.uint8))
-        # axes[0, 0].set_title('RGB image')
-        # axes[0, 1].imshow(img_depth)
-        # axes[0, 1].set_title('Depth image')
-        # axes[1, 0].imshow(cls_vis_gt)
-        # axes[1, 0].set_title('class gt')
-        # axes[1, 1].imshow(cls_vis)
-        # axes[1, 1].set_title('class pred')
-        # axes[2, 0].imshow(pose_vis_gt)
-        # axes[2, 0].set_title('pose gt vis')
-        # axes[2, 1].imshow(pose_vis_pred)
-        # axes[2, 1].set_title('pose pred vis')
+    print "5cm 5deg metric : {}".format(np.sum(cnt_5cm5deg) / np.sum(cnt_ims))
+    print "10cm 10deg metric : {}".format(np.sum(cnt_10cm10deg) / np.sum(cnt_ims))
+    print "15cm 15deg metric : {}".format(np.sum(cnt_15cm15deg) / np.sum(cnt_ims))
 
-        # fig.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95, hspace=0.15, wspace=0.15)
-        # plt.draw()
-        # plt.pause(0.01)
-        # plt.waitforbuttonpress()
 
 
 if __name__ == '__main__':

@@ -28,6 +28,8 @@ def main():
     print "-- results --"
     print "max distances: {}".format(max_axis_dist)
 
+    print dist_scales
+    np.save("distance_scales.npy", dist_scales)
 
 if __name__ == '__main__':
     main()
